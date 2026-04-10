@@ -48,9 +48,15 @@ class GlobFilesTool:
         if not search_dir.is_dir():
             return f"Error: not a directory: {path}"
 
+        def _mtime(p: Path) -> float:
+            try:
+                return p.stat().st_mtime
+            except OSError:
+                return 0.0
+
         matches = sorted(
             (p for p in search_dir.glob(pattern) if p.is_file()),
-            key=lambda p: p.stat().st_mtime,
+            key=_mtime,
             reverse=True,
         )
 

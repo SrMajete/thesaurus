@@ -8,15 +8,15 @@ Import readline for arrow-key navigation and command history.
 import os
 import readline  # noqa: F401 — enables arrow keys + history in input()
 import sys
-import termios
 from enum import Enum, auto
 from typing import Any, Callable
 
 from anthropic import AsyncAnthropic
+from anthropic import AsyncAnthropicBedrock
 
 from . import logging_config
 from .agent import Agent, AgentCallbacks
-from .config import get_settings
+from .config import Settings, get_settings
 from .tools import get_default_tools
 from .tools.base import ToolName
 
@@ -207,9 +207,10 @@ class TerminalOutput:
             # consumed by input() and return "" → treated as default "yes"
             # → silent permission grant the user never actually gave.
             try:
+                import termios
                 termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
-            except termios.error:
-                pass  # non-TTY stdin (pipes, tests) — nothing to flush
+            except (ImportError, OSError):
+                pass  # Windows (no termios) or non-TTY stdin — nothing to flush
             answer = input(f"\n{prompt}").strip().lower()
         except EOFError:
             return False
@@ -259,6 +260,24 @@ def _summarize_params(name: str, params: dict[str, Any]) -> str:
 
 
 # ───────────────────────────────────────────────────────────────────────────
+# Client factory
+# ───────────────────────────────────────────────────────────────────────────
+
+
+def _make_client(settings: Settings) -> AsyncAnthropic | AsyncAnthropicBedrock:
+    """Create the API client based on the configured provider."""
+    if settings.api_provider == "bedrock":
+        return AsyncAnthropicBedrock(
+            aws_region=settings.aws_region,
+            aws_profile=settings.aws_profile,
+            aws_access_key=settings.aws_access_key,
+            aws_secret_key=settings.aws_secret_key,
+            aws_session_token=settings.aws_session_token,
+        )
+    return AsyncAnthropic(api_key=settings.anthropic_api_key)
+
+
+# ───────────────────────────────────────────────────────────────────────────
 # REPL
 # ───────────────────────────────────────────────────────────────────────────
 
@@ -271,7 +290,7 @@ async def repl() -> None:
     output = TerminalOutput()
 
     agent = Agent(
-        client=AsyncAnthropic(api_key=settings.anthropic_api_key),
+        client=_make_client(settings),
         model=settings.model,
         tools=get_default_tools(ask_user_question=output.ask_user_question),
         callbacks=AgentCallbacks(
@@ -285,10 +304,11 @@ async def repl() -> None:
     )
 
     # Header (emoji takes 2 columns, so pad accounts for that)
-    model = settings.model
-    # inner box = 56 cols, visible text before model name = 27 cols (emoji = 2).
-    # Clamp to 0 so a model name ≥ 29 chars doesn't produce a negative repeat.
-    pad = " " * max(0, 29 - len(model))
+    # Inner box = 56 cols, visible text before model name = 27 cols (emoji = 2).
+    # Truncate model names longer than 29 chars to keep the box aligned.
+    max_model = 29
+    model = settings.model if len(settings.model) <= max_model else settings.model[:max_model - 1] + "…"
+    pad = " " * (max_model - len(model))
     B = f"{BOLD}{CYAN}"  # box style
     print()
     print(f"  {B}╔════════════════════════════════════════════════════════╗{RESET}")

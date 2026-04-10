@@ -24,7 +24,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from anthropic import AsyncAnthropic, APIError
+from anthropic import AsyncAnthropic, AsyncAnthropicBedrock, APIError
 from jiter import from_json as _parse_partial_json
 
 from .tools.base import ToolName
@@ -121,7 +121,7 @@ def _with_message_cache_breakpoint(messages: list[dict[str, Any]]) -> list[dict[
 
 
 async def stream_response(
-    client: AsyncAnthropic,
+    client: AsyncAnthropic | AsyncAnthropicBedrock,
     model: str,
     messages: list[dict[str, Any]],
     system: list[dict[str, Any]],

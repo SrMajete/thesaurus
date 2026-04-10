@@ -1,19 +1,15 @@
 """Run Python tool — executes Python code snippets in a fresh subprocess.
 
-Dedicated channel for experimentation, hypothesis testing, and verification.
 Each call spawns a new ``python -c <code>`` subprocess — stateless, no REPL,
-no persistent globals between calls. Avoids shell escaping entirely by using
-``create_subprocess_exec`` instead of ``create_subprocess_shell``.
-
-The model should reach for this instead of bash's ``python -c "..."`` when
-it wants to check how something behaves, compute a value, or verify a change.
+no persistent globals between calls. Uses ``create_subprocess_exec`` to avoid
+shell escaping issues.
 """
 
-import asyncio
 import sys
 from typing import Any
 
-from .base import ToolName, _format_subprocess_output
+from .base import ToolName
+from ._subprocess import run_subprocess
 
 
 class RunPythonTool:
@@ -50,25 +46,6 @@ class RunPythonTool:
     is_parallelizable = True
 
     async def execute(self, *, code: str, timeout: int = 120) -> str:
-        timeout = max(1, timeout)
-        try:
-            process = await asyncio.create_subprocess_exec(
-                sys.executable,
-                "-c",
-                code,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=timeout
-            )
-
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
-            return f"Error: code timed out after {timeout} seconds."
-
-        except OSError as e:
-            return f"Error: {e}"
-
-        return _format_subprocess_output(stdout, stderr, process.returncode)
+        return await run_subprocess(
+            sys.executable, "-c", code, timeout=max(1, timeout)
+        )

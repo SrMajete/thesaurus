@@ -4,10 +4,6 @@ Defines the contract every tool must implement and provides utilities for
 looking up tools and converting them to the Anthropic API format. Concrete
 tools satisfy the protocol with plain class attributes and one async method —
 no inheritance or decorators needed.
-
-Also provides ``_format_subprocess_output``, a shared helper used by
-``RunBashTool`` and ``RunPythonTool`` to format stdout/stderr/exit-code output
-with size-capped truncation.
 """
 
 import copy
@@ -47,41 +43,6 @@ class ToolName(StrEnum):
     ASK_USER = "ask_user"
     MAKE_PLAN = "make_plan"
     SEND_RESPONSE = "send_response"
-
-
-_MAX_OUTPUT_CHARS = 50_000
-
-
-def _format_subprocess_output(
-    stdout: bytes, stderr: bytes, returncode: int
-) -> str:
-    """Format the combined output of a subprocess into a human-readable string.
-
-    Concatenates stdout and stderr, falls back to ``"(no output)"`` if both
-    are empty, truncates with an ellipsis marker if the combined output
-    exceeds ``_MAX_OUTPUT_CHARS``, and appends a trailing exit-code note if
-    the process exited non-zero.
-    """
-    output = ""
-    if stdout:
-        output += stdout.decode(errors="replace")
-    if stderr:
-        if output and not output.endswith("\n"):
-            output += "\n"
-        output += stderr.decode(errors="replace")
-
-    if not output:
-        output = "(no output)"
-
-    if len(output) > _MAX_OUTPUT_CHARS:
-        marker = f"\n\n... truncated ({len(output)} chars total) ...\n\n"
-        half = (_MAX_OUTPUT_CHARS - len(marker)) // 2
-        output = output[:half] + marker + output[-half:]
-
-    if returncode != 0:
-        output += f"\n(exit code: {returncode})"
-
-    return output
 
 
 REASON_FIELD_DESCRIPTION = (

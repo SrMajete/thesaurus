@@ -78,7 +78,10 @@ class GrepFilesTool:
         except FileNotFoundError:
             return "Error: ripgrep (rg) not found. Install: pip install ripgrep"
         except asyncio.TimeoutError:
-            process.kill()
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass  # process already exited between timeout and kill
             await process.wait()
             return f"Error: search timed out after {_TIMEOUT} seconds."
 

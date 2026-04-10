@@ -1,13 +1,9 @@
-"""Run-bash tool — executes shell commands and returns their output.
+"""Run-bash tool — executes shell commands and returns their output."""
 
-Runs commands via asyncio subprocess, captures both stdout and stderr,
-and enforces a configurable timeout to prevent runaway processes.
-"""
-
-import asyncio
 from typing import Any
 
-from .base import ToolName, _format_subprocess_output
+from .base import ToolName
+from ._subprocess import run_subprocess
 
 
 class RunBashTool:
@@ -38,23 +34,4 @@ class RunBashTool:
     is_parallelizable = True
 
     async def execute(self, *, command: str, timeout: int = 120) -> str:
-        timeout = max(1, timeout)
-        try:
-            process = await asyncio.create_subprocess_shell(
-                command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=timeout
-            )
-        
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
-            return f"Error: command timed out after {timeout} seconds."
-        
-        except OSError as e:
-            return f"Error: {e}"
-
-        return _format_subprocess_output(stdout, stderr, process.returncode)
+        return await run_subprocess(command, timeout=max(1, timeout), shell=True)

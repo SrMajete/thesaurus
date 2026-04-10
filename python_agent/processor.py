@@ -24,7 +24,6 @@ it receives, but owns no state itself.
 import asyncio
 import json
 import logging
-import sys
 from typing import TYPE_CHECKING, Any
 
 from .api_client import ToolCall, stream_response
@@ -127,11 +126,10 @@ async def run_loop(agent: "Agent") -> None:
         tool_results = await _execute_tool_calls(agent, remaining_calls) if remaining_calls else []
         agent.messages.append(user_message(plan_results + tool_results))
 
-    # max_turns exhausted — surface to the user and record in history so
-    # the next turn's model knows the prior turn was cut off.
+    # max_turns exhausted — logger.warning surfaces this to stderr via
+    # the stderr handler, and the assistant message makes the model aware.
     message = f"Reached max_turns ({agent.max_turns}) — stopping."
     logger.warning(message)
-    print(f"\n{message}", file=sys.stderr)
     agent.messages.append(assistant_message([{"type": "text", "text": message}]))
 
 

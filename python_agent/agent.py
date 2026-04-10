@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
-from anthropic import AsyncAnthropic
+from anthropic import AsyncAnthropic, AsyncAnthropicBedrock
 
 from .processor import run_loop
 from .messages import user_message
@@ -61,7 +61,7 @@ class Agent:
 
     def __init__(
         self,
-        client: AsyncAnthropic,
+        client: AsyncAnthropic | AsyncAnthropicBedrock,
         model: str,
         tools: list[Tool],
         callbacks: AgentCallbacks,
