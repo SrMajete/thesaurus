@@ -82,15 +82,6 @@ async def run_loop(agent: "Agent") -> None:
         if not response.tool_calls:
             return
 
-        # Enforce make_plan as the first tool call every turn.
-        if response.tool_calls[0].name != ToolName.MAKE_PLAN:
-            _reject_turn(
-                agent, response.tool_calls,
-                "Every turn must start with make_plan. "
-                "Call make_plan first, then your other tools.",
-            )
-            continue
-
         # Extract all make_plan calls — the prompt forbids more than one
         # per turn, but handle the misbehaving case so every tool_use gets
         # a matching tool_result and the next API call isn't rejected.
@@ -147,22 +138,6 @@ async def run_loop(agent: "Agent") -> None:
 # ───────────────────────────────────────────────────────────────────────────
 # Tool execution with parallel read-only support
 # ───────────────────────────────────────────────────────────────────────────
-
-
-def _reject_turn(
-    agent: "Agent", tool_calls: list[ToolCall], error: str
-) -> None:
-    """Reject all tool calls with an error, giving the model a chance to retry.
-
-    Appends error ``tool_result`` blocks for every ``tool_use`` in the turn
-    so the API invariant (every tool_use has a matching tool_result) holds.
-    The caller should ``continue`` the loop to let the model retry.
-    """
-    logger.warning("Turn rejected: %s", error)
-    agent.messages.append(user_message([
-        tool_result(c.id, error, is_error=True)
-        for c in tool_calls
-    ]))
 
 
 def _format_plan(thinking: str, roadmap: str) -> str:
