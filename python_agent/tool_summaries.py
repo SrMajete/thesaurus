@@ -20,12 +20,12 @@ SUMMARIZERS: dict[ToolName, Callable[[dict[str, Any]], str]] = {
     ToolName.GLOB_FILES: lambda p: p.get("pattern", ""),
     ToolName.GREP_FILES: lambda p: p.get("pattern", ""),
     # make_plan and send_response are streamable tools: on_tool_start fires
-    # as soon as the first streamable field has content. The ``reason`` field
-    # is usually populated by then, but the model doesn't always write it
-    # first in the JSON, so the CLI may see empty params. These fallbacks
-    # ensure the tool header still reads naturally in that case.
-    ToolName.MAKE_PLAN: lambda *_: "planning…",
-    ToolName.SEND_RESPONSE: lambda *_: "responding…",
+    # as soon as the first streamable field has content, which may be before
+    # the model has written the ``reason`` field. Return empty so the header
+    # renders as just ``tool → make_plan`` / ``tool → send_response`` —
+    # whatever streams next (thinking body, response body) is the real payload.
+    ToolName.MAKE_PLAN: lambda *_: "",
+    ToolName.SEND_RESPONSE: lambda *_: "",
 }
 
 

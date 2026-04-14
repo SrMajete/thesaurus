@@ -261,7 +261,7 @@ async def repl() -> None:
 
     while True:
         try:
-            user_input = input(f"{BLUE}user →{RESET} {LIGHT_BLUE}")
+            user_input = input(f"{BOLD}{BLUE}user →{RESET} {LIGHT_BLUE}")
             print(RESET, end="", flush=True)
         except (EOFError, KeyboardInterrupt):
             print(f"\n{GRAY}Goodbye. 👋{RESET}")
@@ -274,7 +274,7 @@ async def repl() -> None:
         if not user_input.strip():
             continue
 
-        print(f"\n{GREEN}agent →{RESET} ", end="", flush=True)
+        print(f"\n{BOLD}{GREEN}agent →{RESET} ", end="", flush=True)
 
         try:
             await agent.process_input(user_input)

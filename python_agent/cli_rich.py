@@ -52,7 +52,7 @@ THEME = Theme(
     {
         "header": "bold cyan",
         "separator": "color(245)",
-        "user.label": "blue",
+        "user.label": "bold blue",
         "user.text": "color(111)",
         "agent.label": "bold green",
         "agent.text": "color(114)",
@@ -105,8 +105,14 @@ _INDENT = 2
 
 
 def _indent(renderable: RenderableType) -> Padding:
-    """Wrap a renderable with the standard left indent."""
-    return Padding(renderable, (0, 0, 0, _INDENT))
+    """Wrap a renderable with the standard left indent.
+
+    ``expand=False`` avoids filling the line to terminal width with
+    trailing spaces — otherwise a line that exactly matches the terminal
+    width triggers the terminal's phantom-wrap behavior and swallows the
+    next blank ``\\n`` we emit.
+    """
+    return Padding(renderable, (0, 0, 0, _INDENT), expand=False)
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -138,6 +144,23 @@ def _tool_header(name: str, params: dict[str, Any]) -> Text:
     label = params.get("reason") or summarize_params(name, params)
     text = f"tool → {name}: {label}" if label else f"tool → {name}"
     return Text(text, style="tool.name")
+
+
+def _tool_detail(name: str, params: dict[str, Any]) -> Text | None:
+    """Return the param summary line if it adds info beyond the header.
+
+    When ``reason`` is present the header shows intent; the summary
+    (``command``, ``file_path``, ``pattern``…) goes on a second line
+    in muted ``hint`` style so the user can see the actual payload.
+    When there is no reason, the header already shows the summary and
+    this returns ``None`` to avoid a duplicate line.
+    """
+    if not params.get("reason"):
+        return None
+    summary = summarize_params(name, params)
+    if not summary:
+        return None
+    return Text(summary, style="hint")
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -234,10 +257,23 @@ class RichOutput:
 
     def on_tool_start(self, name: str, params: dict[str, Any]) -> None:
         self.close_active()
-        self._blank()
-        self.console.print(_indent(_tool_header(name, params)))
+        self._print_tool_preamble(name, params)
         if name not in _INTERCEPTED_TOOLS:
             self._start_spinner()
+
+    def _print_tool_preamble(self, name: str, params: dict[str, Any]) -> None:
+        """Emit the header line and optional param-detail line for a tool call.
+
+        Shared by ``on_tool_start`` (auto-path) and ``ask_permission``
+        (approve-path) — both need to announce the tool before whatever
+        comes next (spinner, result, permission prompt).
+        """
+        self._blank()
+        self.console.print(_indent(_tool_header(name, params)))
+        detail = _tool_detail(name, params)
+        if detail is not None:
+            self._blank()
+            self.console.print(_indent(detail))
 
     def on_tool_result(
         self, name: str, params: dict[str, Any], result: str, is_error: bool
@@ -254,8 +290,7 @@ class RichOutput:
 
     async def ask_permission(self, name: str, params: dict[str, Any]) -> bool:
         self.close_active()
-        self._blank()
-        self.console.print(_indent(_tool_header(name, params)))
+        self._print_tool_preamble(name, params)
         self._blank()
         _flush_stdin()
         try:
