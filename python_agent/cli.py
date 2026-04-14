@@ -48,6 +48,8 @@ CYAN = "\033[36m"
 ORANGE = "\033[38;5;208m"
 PURPLE = "\033[38;5;141m"
 GRAY = "\033[38;5;245m"
+LIGHT_BLUE = "\033[38;5;111m"
+LIGHT_GREEN = "\033[38;5;114m"
 
 THINKING_STYLE = f"{BOLD}{DIM}{ITALIC}{PURPLE}"
 SEPARATOR = f"{GRAY}{'─' * 56}{RESET}"
@@ -128,7 +130,7 @@ class TerminalOutput:
             print("\n\n", end="", flush=True)
             self._col = 0
         self._last = _DisplayState.TEXT
-        self._print_wrapped(delta, f"{BOLD}{CYAN}")
+        self._print_wrapped(delta, f"{BOLD}{LIGHT_GREEN}")
 
     def on_tool_start(self, name: str, params: dict[str, Any]) -> None:
         """Print tool name and the model's reason, waiting for result on the same line.
@@ -322,7 +324,8 @@ async def repl() -> None:
 
     while True:
         try:
-            user_input = input(f"{BOLD}{BLUE}user →{RESET} ")
+            user_input = input(f"{BOLD}{BLUE}user →{RESET} {LIGHT_BLUE}")
+            print(RESET, end="", flush=True)
         except (EOFError, KeyboardInterrupt):
             print(f"\n{GRAY}Goodbye. 👋{RESET}")
             break
