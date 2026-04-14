@@ -9,16 +9,14 @@ import os
 import readline  # noqa: F401 — enables arrow keys + history in input()
 import sys
 from enum import Enum, auto
-from typing import Any, Callable
-
-from anthropic import AsyncAnthropic
-from anthropic import AsyncAnthropicBedrock
+from typing import Any
 
 from . import logging_config
 from .agent import Agent, AgentCallbacks
-from .config import Settings, get_settings
+from .client import make_client
+from .config import get_settings
+from .tool_summaries import summarize_params
 from .tools import get_default_tools
-from .tools.base import ToolName
 
 
 class _DisplayState(Enum):
@@ -41,7 +39,6 @@ RESET = "\033[0m"
 
 RED = "\033[31m"
 GREEN = "\033[32m"
-YELLOW = "\033[33m"
 BLUE = "\033[34m"
 CYAN = "\033[36m"
 
@@ -130,7 +127,7 @@ class TerminalOutput:
             print("\n\n", end="", flush=True)
             self._col = 0
         self._last = _DisplayState.TEXT
-        self._print_wrapped(delta, f"{BOLD}{LIGHT_GREEN}")
+        self._print_wrapped(delta, LIGHT_GREEN)
 
     def on_tool_start(self, name: str, params: dict[str, Any]) -> None:
         """Print tool name and the model's reason, waiting for result on the same line.
@@ -146,7 +143,7 @@ class TerminalOutput:
             print(RESET, end="", flush=True)
         sep = "\n" if self._last == _DisplayState.TOOL else "\n\n"
         self._last = _DisplayState.TOOL
-        label = params.get("reason") or _summarize_params(name, params)
+        label = params.get("reason") or summarize_params(name, params)
         line = self._fit(f"tool → {name}: {label}")
         print(f"{sep}{BOLD}{ORANGE}{line}{RESET} ", end="", flush=True)
         self._col = len(line) + 1
@@ -193,7 +190,7 @@ class TerminalOutput:
         self._col = 0
 
         reason = params.get("reason")
-        summary = _summarize_params(name, params)
+        summary = summarize_params(name, params)
 
         header = self._fit(f"tool → {name}: {reason}" if reason else f"tool → {name}: {summary}")
         detail = self._fit(summary) if reason else None
@@ -219,66 +216,6 @@ class TerminalOutput:
 
         return answer in ("", "y", "yes")
 
-    async def ask_user_question(self, question: str) -> str:
-        """Ask the user a question and return their answer.
-
-        Called by ``AskUserTool.execute()`` via the callback it was
-        constructed with. Uses blocking ``input()`` inside an ``async def``
-        — same pattern as ``ask_permission`` above (the event loop blocks
-        during a prompt, but there's no concurrent work during a prompt
-        so this is acceptable).
-        """
-        if self._last == _DisplayState.THINKING:
-            print(RESET, end="", flush=True)
-        self._last = _DisplayState.TOOL
-        self._col = 0
-
-        try:
-            print(f"\n\n  ❓ {question}\n")
-            answer = input("  → ").strip()
-        except EOFError:
-            return "User did not respond."
-
-        return answer if answer else "User did not respond."
-
-
-_SUMMARIZERS: dict[str, Callable[[dict[str, Any]], str]] = {
-    ToolName.RUN_BASH: lambda p: p.get("command", ""),
-    ToolName.RUN_PYTHON: lambda p: " ".join(p.get("code", "").split()),
-    ToolName.READ_FILE: lambda p: p.get("file_path", ""),
-    ToolName.WRITE_FILE: lambda p: f"{p.get('file_path', '')} ({len(p.get('content', ''))} chars)",
-    ToolName.EDIT_FILE: lambda p: f"{p.get('file_path', '')} ({len(p.get('old_text', ''))}→{len(p.get('new_text', ''))} chars)",
-    ToolName.GLOB_FILES: lambda p: p.get("pattern", ""),
-    ToolName.GREP_FILES: lambda p: p.get("pattern", ""),
-    ToolName.MAKE_PLAN: lambda p: p.get("thinking", "").split("\n", 1)[0].strip(),
-    ToolName.SEND_RESPONSE: lambda p: p.get("response", "").split(". ", 1)[0].strip(),
-}
-
-
-def _summarize_params(name: str, params: dict[str, Any]) -> str:
-    """Return a one-line preview of a tool call's params for the CLI display."""
-    summarizer = _SUMMARIZERS.get(name)
-    return summarizer(params) if summarizer else str(params)[:100]
-
-
-# ───────────────────────────────────────────────────────────────────────────
-# Client factory
-# ───────────────────────────────────────────────────────────────────────────
-
-
-def _make_client(settings: Settings) -> AsyncAnthropic | AsyncAnthropicBedrock:
-    """Create the API client based on the configured provider."""
-    if settings.api_provider == "bedrock":
-        return AsyncAnthropicBedrock(
-            aws_region=settings.aws_region,
-            aws_profile=settings.aws_profile,
-            aws_access_key=settings.aws_access_key,
-            aws_secret_key=settings.aws_secret_key,
-            aws_session_token=settings.aws_session_token,
-        )
-    return AsyncAnthropic(api_key=settings.anthropic_api_key)
-
-
 # ───────────────────────────────────────────────────────────────────────────
 # REPL
 # ───────────────────────────────────────────────────────────────────────────
@@ -292,9 +229,9 @@ async def repl() -> None:
     output = TerminalOutput()
 
     agent = Agent(
-        client=_make_client(settings),
+        client=make_client(settings),
         model=settings.model,
-        tools=get_default_tools(ask_user_question=output.ask_user_question),
+        tools=get_default_tools(),
         callbacks=AgentCallbacks(
             on_thinking=output.on_thinking,
             on_text=output.on_text,
@@ -324,7 +261,7 @@ async def repl() -> None:
 
     while True:
         try:
-            user_input = input(f"{BOLD}{BLUE}user →{RESET} {LIGHT_BLUE}")
+            user_input = input(f"{BLUE}user →{RESET} {LIGHT_BLUE}")
             print(RESET, end="", flush=True)
         except (EOFError, KeyboardInterrupt):
             print(f"\n{GRAY}Goodbye. 👋{RESET}")

@@ -40,7 +40,6 @@ class ToolName(StrEnum):
     GREP_FILES = "grep_files"
     RUN_BASH = "run_bash"
     RUN_PYTHON = "run_python"
-    ASK_USER = "ask_user"
     MAKE_PLAN = "make_plan"
     SEND_RESPONSE = "send_response"
 
@@ -71,15 +70,15 @@ class Tool(Protocol):
       to external systems sets True.
     - ``is_parallelizable``: if True, the tool is safe to run concurrently
       with peers in the same batch via ``asyncio.gather``. Tools that do
-      blocking synchronous I/O (e.g. ``ask_user`` calling ``input()``) or
-      that share mutable state with each other must set False.
+      blocking synchronous I/O or that share mutable state with each
+      other must set False.
 
     Both flags must be declared explicitly — no defaults. A new tool that
     forgets to think about either dimension breaks at import time, not at
     runtime. All four combinations are meaningful:
 
     - (False, True)  → auto-parallel        (read_file, glob_files, grep_files)
-    - (False, False) → auto-serial          (ask_user)
+    - (False, False) → auto-serial          (make_plan, send_response)
     - (True,  True)  → approve-then-parallel (run_bash, run_python)
     - (True,  False) → approve-then-serial  (write_file, edit_file)
     """
