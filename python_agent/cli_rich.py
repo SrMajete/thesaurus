@@ -4,10 +4,11 @@ Parallel to ``cli.py`` but adds:
 
 - one ``Theme`` as the single source for style (replacing ~12 ANSI
   constants and a composite ``THINKING_STYLE``),
-- a braille spinner via ``rich.status.Status`` during tool execution —
-  started in ``on_tool_start`` for auto-path tools and in
-  ``ask_permission`` after approval for permission-required tools —
-  closed by ``close_active`` when the next callback fires,
+- a ``thinking .`` / ``.. `` / ``...`` dots spinner (``_Dots`` renderable
+  inside a transient ``Live``) — started from three sites: the REPL
+  during the pre-stream API wait, ``on_tool_start`` for auto-path
+  tools, and ``ask_permission`` after approval for permission-required
+  tools — closed by ``close_active`` when the next callback fires,
 - ``rich.markdown.Markdown`` rendering of the thinking and response
   streams (streamed live as plain styled text, re-rendered once as
   Markdown when the stream ends so headers, code blocks, lists and
@@ -24,6 +25,7 @@ point that tears the active region down before the next block.
 
 import readline  # noqa: F401 — enables arrow keys + history in input()
 import sys
+import time
 from typing import Any, Literal
 
 from rich.console import Console, RenderableType
@@ -31,7 +33,6 @@ from rich.live import Live
 from rich.markdown import Markdown
 from rich.padding import Padding
 from rich.panel import Panel
-from rich.status import Status
 from rich.text import Text
 from rich.theme import Theme
 
@@ -63,6 +64,16 @@ THEME = Theme(
         "hint": "color(245)",
         "prompt.question": "bold blue",
         "prompt.choices": "bold red",
+        "spinner": "red",
+        # Strip the bold that Rich's default Markdown applies to headings
+        # (``## Thinking``, ``## Roadmap`` etc.) and keep them in the same
+        # dim-italic purple as the thinking body, so a heading doesn't
+        # flip into bold + different color mid-stream. Agent-response
+        # markdown headings (rare) also take this style — acceptable.
+        "markdown.h1": "dim italic color(141)",
+        "markdown.h2": "dim italic color(141)",
+        "markdown.h3": "dim italic color(141)",
+        "markdown.h4": "dim italic color(141)",
     }
 )
 
@@ -134,6 +145,26 @@ def _flush_stdin() -> None:
         pass  # Windows (no termios) or non-TTY stdin
 
 
+class _Dots:
+    """Renderable that animates ``{label} .`` → ``{label} ..`` → ``{label} ...`` cycling.
+
+    Rich calls ``__rich__`` on every ``Live`` refresh, so time-based
+    frame selection gives a clean animation without needing a custom
+    entry in Rich's spinner registry. Rendered in the ``spinner``
+    theme style so it reads as chrome, not content.
+    """
+
+    _CADENCE_S = 0.4  # seconds per dot step
+
+    def __init__(self, label: str) -> None:
+        self._label = label
+        self._t0 = time.monotonic()
+
+    def __rich__(self) -> Text:
+        step = int((time.monotonic() - self._t0) / self._CADENCE_S) % 3 + 1
+        return Text(f"{self._label} {'.' * step}", style="spinner")
+
+
 def _tool_header(name: str, params: dict[str, Any]) -> Text:
     """Render a tool header as ``tool → {name}: {label}``.
 
@@ -173,7 +204,7 @@ class RichOutput:
 
     def __init__(self) -> None:
         self.console = Console(theme=THEME, highlight=False)
-        self._active: Live | Status | None = None
+        self._active: Live | None = None
         self._kind: _Kind | None = None
         self._buf: str = ""
 
@@ -208,9 +239,20 @@ class RichOutput:
         self._kind = None
         self._buf = ""
 
-    def _start_spinner(self) -> None:
-        """Open a ``Status`` spinner; the next callback closes it via ``close_active``."""
-        self._active = self.console.status(" running…", spinner="dots")
+    def start_spinner(self, label: str = "running") -> None:
+        """Open a flush-left ``label . .. ...`` spinner.
+
+        Called from tool callbacks with the default ``running`` label and
+        from the REPL with ``thinking`` during the pre-stream API wait.
+        The next callback closes it via ``close_active``. Transient so
+        the spinner cleans up when the next block prints.
+        """
+        self._active = Live(
+            _Dots(label),
+            console=self.console,
+            refresh_per_second=4,
+            transient=True,
+        )
         self._active.start()
         self._kind = "spinner"
 
@@ -259,7 +301,7 @@ class RichOutput:
         self.close_active()
         self._print_tool_preamble(name, params)
         if name not in _INTERCEPTED_TOOLS:
-            self._start_spinner()
+            self.start_spinner()
 
     def _print_tool_preamble(self, name: str, params: dict[str, Any]) -> None:
         """Emit the header line and optional param-detail line for a tool call.
@@ -306,7 +348,7 @@ class RichOutput:
             # The processor skips ``on_tool_start`` for permission-required
             # tools (the header was already rendered above), so start the
             # spinner here instead. The next callback closes it.
-            self._start_spinner()
+            self.start_spinner()
         return approved
 
 
@@ -381,6 +423,7 @@ async def repl() -> None:
         if not user_input.strip():
             continue
 
+        output.start_spinner("thinking")
         try:
             await agent.process_input(user_input)
         except KeyboardInterrupt:
