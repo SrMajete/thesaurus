@@ -24,6 +24,7 @@ from typing import Any
 from pyfiglet import Figlet
 from rich.console import RenderableType
 from rich.markdown import Markdown
+from rich.rule import Rule
 from rich.syntax import Syntax
 from rich.text import Text
 from textual import on, work
@@ -73,9 +74,13 @@ Screen {
     background: black 0%;
 }
 
+/* Prompt border mirrors the user/agent text palette: unfocused ->
+   ``.user`` cyan (``#5fd7d7``) so the box reads as the user's
+   editable space; focused -> ``.agent`` pastel green (``#87d787``)
+   signalling "input is hot, ready to send to the agent". */
 #prompt {
     dock: bottom;
-    border: round #87afff;
+    border: round #5fd7d7;
     height: auto;
     min-height: 3;
     max-height: 8;
@@ -83,8 +88,25 @@ Screen {
     padding: 0 1;
 }
 
+/* Cumulative token counter — one line tall. Sits directly above the
+   prompt via flow layout: the prompt's ``dock: bottom`` takes it out
+   of flow, so this widget naturally lands at the bottom of the
+   remaining area. ``margin-top: 1`` leaves a blank row between the
+   last scrollback widget (usually a turn separator) and the counter
+   so they don't visually collide. ``padding: 0 1`` matches
+   ``#messages``'s own padding so the counter aligns with the left
+   edge of scrollback content. Colors come from the Rich ``Text``
+   inside, so no CSS ``color:`` property here. */
+#token-counter {
+    height: 1;
+    margin-top: 1;
+    padding: 0 1;
+    text-align: left;
+    background: black 0%;
+}
+
 #prompt:focus {
-    border: round #00ff5f;
+    border: round #87d787;
 }
 
 .banner {
@@ -94,8 +116,16 @@ Screen {
     height: auto;
 }
 
+/* User message text — bright turquoise cyan. Brighter and cooler
+   than the banner's ``#00aaaa`` teal; visually pairs with the agent's
+   ``#87d787`` light green at a similar lightness level. Two rows of
+   top padding give each user message clear breathing room above —
+   single source of truth for "space between prior content and the
+   next user turn," whether that prior content is a startup hint
+   (first turn) or a turn-separator rule (subsequent turns). */
 .user {
-    padding: 1 0 0 0;
+    color: #5fd7d7;
+    padding: 2 0 0 0;
 }
 
 .hint {
@@ -103,10 +133,9 @@ Screen {
     text-style: italic;
 }
 
-.tool-header {
-    color: #ff8700;
-    text-style: bold;
-}
+/* .tool-header has no rule: color + weight come from the inline
+   ``Text`` returned by ``_tool_header_text``. See that function's
+   docstring for the split. */
 
 /* tool-detail / tool-ok / tool-fail are mounted INSIDE ToolCall, so
    their top padding provides the blank between header and child rows.
@@ -138,7 +167,10 @@ Screen {
 }
 
 /* Nested one level further right than tool headers so the stream
-   reads as content belonging to the enclosing ``make_plan`` block. */
+   reads as content belonging to the enclosing ``make_plan`` block.
+   Dim italic purple so thinking recedes visually — it's the agent's
+   scratchpad, not the deliverable. Paired with ``dim`` in the
+   Markdown ``_BASE_STYLE`` below. */
 .thinking {
     color: #af87ff;
     text-style: italic;
@@ -186,8 +218,6 @@ PermissionModal {
 
 #permission-dialog > .dialog-header {
     column-span: 2;
-    color: #ff8700;
-    text-style: bold;
 }
 
 #permission-dialog > .dialog-detail {
@@ -220,6 +250,74 @@ def _render_banner() -> str:
 
 
 _BANNER = _render_banner()
+
+
+def _format_token_line(
+    in_tokens: int,
+    cached_tokens: int,
+    out_tokens: int,
+) -> Text:
+    """Build the colored ``tokens[(unit)] → input=X (Y cached), output=Z`` line.
+
+    Used by both the cumulative counter docked above the prompt and the
+    per-turn separator rule mounted into scrollback — one source of truth
+    so the two displays can't drift out of sync, and identical styling
+    in both places.
+
+    Auto-scales the unit from the largest of the three values so all
+    numbers share the same scale and read comparably:
+
+    - under 10,000 → raw integer with comma separators (precise)
+    - 10,000 ≤ x < 1,000,000 → ``(K)`` with two decimals
+    - 1,000,000 and up → ``(M)`` with three decimals
+
+    Decimals are chosen so small values stay distinguishable after
+    scaling: at K with 2 decimals, 150 → ``0.15`` and 240 → ``0.24``
+    instead of collapsing to ``0.2``. At M with 3 decimals the same
+    resolution applies one order of magnitude up.
+
+    ``cached_tokens`` is the subset of ``in_tokens`` that came from the
+    prompt cache (cache writes + cache reads). Always rendered in
+    parentheses after the input total so the headline number stays the
+    full input count.
+
+    Colors follow the UI's user/agent palette; nothing bold, so the
+    line reads flat and calm:
+
+    - ``tokens[(unit)] →`` label and ``cached`` annotation in bright
+      white so the structural words stand out against the rule.
+    - ``input=`` label + number in cyan (``#5fd7d7`` / ``#5fffff``),
+      aligned with ``.user``'s cyan identity.
+    - ``output=`` label + number in green (``#87d787`` / ``#00ff5f``),
+      aligned with ``.agent``.
+    """
+    peak = max(in_tokens, cached_tokens, out_tokens)
+    if peak < 10_000:
+        unit, divisor, decimals = "", 1, 0
+    elif peak < 1_000_000:
+        unit, divisor, decimals = "(K)", 1_000, 2
+    else:
+        unit, divisor, decimals = "(M)", 1_000_000, 3
+
+    def fmt(n: int) -> str:
+        return f"{n:,}" if divisor == 1 else f"{n / divisor:.{decimals}f}"
+
+    # Every fragment carries an explicit span style (no reliance on the
+    # Text base style). ``rich.rule.Rule`` calls ``stylize(rule_style)``
+    # on the assembled line, which overlays the rule's gray onto any
+    # content *without* an explicit span — giving the separator a
+    # subtly different look than the counter. Explicit spans
+    # everywhere keep the two displays identical.
+    t = Text()
+    t.append(f"tokens{unit} → ", style="bright_white")
+    t.append("input=", style="#5fd7d7")
+    t.append(fmt(in_tokens), style="#5fffff")
+    t.append(" (", style="white")
+    t.append(fmt(cached_tokens), style="white")
+    t.append(" cached), ", style="white")
+    t.append("output=", style="#87d787")
+    t.append(fmt(out_tokens), style="#00ff5f")
+    return t
 
 
 def _code_block(code: str, lexer: str) -> Syntax:
@@ -311,16 +409,34 @@ def _detail_renderable(name: str, params: dict[str, Any]) -> RenderableType:
     return Text("")
 
 
-def _tool_header_text(name: str, params: dict[str, Any]) -> str:
-    """Build the ``tool → {name}: {label}`` header string.
+def _tool_header_text(name: str, params: dict[str, Any]) -> Text:
+    """Build the ``tool → {name}: {label}`` header as a two-tone ``Text``.
 
     Label text comes from the shared ``tool_header_label`` helper so
     this CLI stays in sync with the classic and rich variants. When
     no label is available (no reason, no summary) the trailing colon
     is omitted so the header reads as just ``tool → {name}``.
+
+    Mirrors the ``user →`` / ``agent →`` body-to-label luminance
+    relationship while keeping the orange hue unmistakably orange:
+
+    - Tool body in ``#ffaf5f`` — vivid light orange (ANSI 215),
+      saturation 100%, lightness ~69%, relative luminance ~186.
+      Matches ``.user`` (Y~190) and ``.agent`` (Y~192) body brightness.
+      Desaturated tans (``#d7af87``) at matching luminance read as
+      beige rather than orange — full saturation here keeps the hue
+      recognisable.
+    - Tool prefix bold ``#ffaf00`` — yellow-leaning orange, full
+      saturation, relative luminance ~179. Near-parity with the body
+      (Δ ≈ −7), same body-to-label relationship as ``agent-label``
+      (Δ ≈ −3) and a bright perceived weight.
     """
+    t = Text()
+    t.append("tool → ", style="bold #ffaf00")
     label = tool_header_label(name, params)
-    return f"tool → {name}: {label}" if label else f"tool → {name}"
+    body = f"{name}: {label}" if label else name
+    t.append(body, style="#ffaf5f")
+    return t
 
 
 _HELP_TEXT = """Slash commands:
@@ -342,15 +458,18 @@ Keys:
 class UserMessage(Static):
     """One-line ``user → {text}`` display.
 
-    Label and text carry different styles so the prompt marker reads as
-    the structural element (bold blue) and the typed content stands out
-    in a lighter shade — same relationship ``cli_rich`` uses.
+    Mirrors the agent's label/text color pairing at matching brightness:
+    the ``user →`` label is electric cyan (``#5fffff`` = color 87) just
+    as ``agent-label`` is electric green (``#00ff5f`` = color 46), and
+    the typed text is pastel cyan (``#5fd7d7``) paralleling ``.agent``'s
+    pastel green (``#87d787``). Same "bright label over pastel body"
+    relationship on both sides.
     """
 
     def __init__(self, text: str) -> None:
         content = Text()
-        content.append("user → ", style="bold #0000ff")
-        content.append(text, style="#87afff")
+        content.append("user → ", style="bold #5fffff")
+        content.append(text, style="#5fd7d7")
         super().__init__(content, classes="user")
 
 
@@ -493,6 +612,20 @@ class Spinner(Static):
 
     def _frame(self) -> str:
         return f"{self._label} {'.' * self._step}"
+
+
+class TokenCounter(Static):
+    """Cumulative input/output token display, docked above the prompt.
+
+    Reads its values from the ``Agent`` instance via ``update_totals``.
+    Formatting is delegated to the module-level ``_format_token_line``
+    helper so the counter and per-turn separator render identically.
+    """
+
+    def update_totals(
+        self, in_tokens: int, cached_tokens: int, out_tokens: int
+    ) -> None:
+        self.update(_format_token_line(in_tokens, cached_tokens, out_tokens))
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -661,8 +794,9 @@ class AgentApp(App[None]):
         self._pending: dict[str, ToolCall] = {}
 
     def compose(self) -> ComposeResult:
-        """Build the static layout: scrollable message pane + input box."""
+        """Build the static layout: scrollable message pane + token counter + input box."""
         yield VerticalScroll(id="messages")
+        yield TokenCounter(id="token-counter")
         yield PromptArea(id="prompt")
 
     def on_mount(self) -> None:
@@ -672,6 +806,9 @@ class AgentApp(App[None]):
         self._mount_hint(f"model:     {self.settings.model}")
         self._mount_hint(f"provider:  {self.settings.api_provider}")
         self._mount_hint("help:      /help for commands · Enter send · Shift+Enter newline · Ctrl+C quit")
+        # Initialize the cumulative counter so it reads a styled zero
+        # line from startup instead of being blank until the first turn.
+        self.query_one(TokenCounter).update_totals(0, 0, 0)
         self.query_one("#prompt", PromptArea).focus()
 
     # ── callback targets ───────────────────────────────────────────────
@@ -834,13 +971,46 @@ class AgentApp(App[None]):
         Must run inside a worker context so ``ask_permission`` can
         ``await push_screen_wait(...)`` — Textual 8.x requires modal
         value-returning awaits to originate from a worker.
+
+        After the turn ends (success or exception), mounts a horizontal
+        rule summarizing that turn's token delta, and refreshes the
+        cumulative counter docked above the prompt. Deltas are derived
+        by snapshot-subtract so no per-turn state is added to the Agent.
         """
+        before_in = self.agent.total_input_tokens
+        before_cached = self.agent.total_cached_input_tokens
+        before_out = self.agent.total_output_tokens
         try:
             await self.agent.process_input(value)
         except Exception as e:
             self._mount_hint(f"Error: {e}")
         finally:
             self._close_active_stream_or_spinner()
+            turn_in = self.agent.total_input_tokens - before_in
+            turn_cached = self.agent.total_cached_input_tokens - before_cached
+            turn_out = self.agent.total_output_tokens - before_out
+            # Double line-jump above the separator so each turn has clear
+            # visual breathing room before its summary rule.
+            self._mount_blank()
+            self._mount_blank()
+            self._mount_to_messages(Static(
+                Rule(
+                    title=_format_token_line(turn_in, turn_cached, turn_out),
+                    align="left",
+                    style="color(245)",
+                    characters="-",
+                ),
+                classes="turn-separator",
+            ))
+            # Spacing between the separator and the next user message
+            # is owned by ``.user``'s top padding (2 rows) — keeping
+            # it in one place avoids stacking blanks here with CSS
+            # padding above the next ``UserMessage``.
+            self.query_one(TokenCounter).update_totals(
+                self.agent.total_input_tokens,
+                self.agent.total_cached_input_tokens,
+                self.agent.total_output_tokens,
+            )
 
     async def _handle_slash(self, cmd: str) -> None:
         # Single dispatch point for every slash command.

@@ -25,6 +25,7 @@ CLI_STYLE=tui     python -m python_agent   # full-screen Textual TUI
 - Streams model output live (thinking, tool calls, response) with character-level rendering.
 - Runs tools in parallel where safe, prompts for permission on anything state-changing.
 - Shows a two-field plan (thinking + roadmap) that the model evolves every turn.
+- TUI surfaces per-turn and cumulative token usage with a cache-hit breakdown.
 - Supports direct Anthropic API and AWS Bedrock.
 
 Built-in tools: `read_file`, `write_file`, `edit_file`, `glob_files`, `grep_files`, `run_bash`, `run_python`, plus the intercepted `make_plan` / `send_response` that drive the agent loop.

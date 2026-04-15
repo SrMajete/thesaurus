@@ -83,6 +83,21 @@ async def run_loop(agent: "Agent") -> None:
             on_tool_start=agent.callbacks.on_tool_start,
         )
 
+        # Accumulate session-wide token usage. Input sums fresh input +
+        # cache writes + cache reads — all tokens the model processed.
+        # The cached total tracks the cache_creation + cache_read
+        # portion separately so UIs can surface cache efficiency.
+        agent.total_input_tokens += (
+            response.input_tokens
+            + response.cache_creation_input_tokens
+            + response.cache_read_input_tokens
+        )
+        agent.total_cached_input_tokens += (
+            response.cache_creation_input_tokens
+            + response.cache_read_input_tokens
+        )
+        agent.total_output_tokens += response.output_tokens
+
         agent.messages.append(assistant_message(response.content))
 
         # No tool calls → done (fallback, shouldn't happen with tool_choice: any)

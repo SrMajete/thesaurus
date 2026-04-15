@@ -111,6 +111,17 @@ class Agent:
         # state when deciding the next step. None until the first make_plan
         # call.
         self.plan: str | None = None
+        # Cumulative token counts across the session. Bumped by the
+        # processor after every ``stream_response`` with the usage
+        # returned by the API. ``total_input_tokens`` sums fresh input
+        # + cache writes + cache reads — all tokens the model
+        # processed. ``total_cached_input_tokens`` is the cached portion
+        # (cache writes + cache reads) so UIs can show cache efficiency
+        # without storing the per-category breakdown. Consumers (e.g.
+        # the TUI counter and per-turn separator) read these directly.
+        self.total_input_tokens: int = 0
+        self.total_cached_input_tokens: int = 0
+        self.total_output_tokens: int = 0
 
     async def process_input(self, user_input: str) -> None:
         """Process a user message and run the agentic loop.
