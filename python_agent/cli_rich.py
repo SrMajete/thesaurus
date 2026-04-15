@@ -39,10 +39,9 @@ from rich.theme import Theme
 from . import logging_config
 from .agent import Agent, AgentCallbacks
 from .client import make_client
-from .config import get_settings
-from .tool_summaries import summarize_params
+from .config import Settings
+from .tool_summaries import INTERCEPTED_TOOLS, summarize_params, tool_header_label
 from .tools import get_default_tools
-from .tools.base import ToolName
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -99,14 +98,6 @@ _STREAM_STYLES: dict[_Kind, str] = {
 # The assistant's final response (``text``) stays flush-left so long
 # markdown blocks (code, tables, lists) have the full terminal width.
 _INDENTED_STREAMS: frozenset[_Kind] = frozenset({"thinking"})
-
-# Tools whose ``execute()`` is never called — the processor intercepts them
-# and routes their content through ``on_thinking``/``on_text`` streaming
-# instead. Skipping the spinner for these avoids a brief flicker before
-# the first streaming delta fires.
-_INTERCEPTED_TOOLS: frozenset[str] = frozenset(
-    {ToolName.MAKE_PLAN, ToolName.SEND_RESPONSE}
-)
 
 # Left-pad applied to every block of agent activity (tool headers, tool
 # results, thinking, assistant text) so the conversation visually nests
@@ -166,13 +157,13 @@ class _Dots:
 
 
 def _tool_header(name: str, params: dict[str, Any]) -> Text:
-    """Render a tool header as ``tool → {name}: {label}``.
+    """Render a tool header as ``tool → {name}: {label}`` styled.
 
-    ``label`` is the ``reason`` field when present (the model's intent
-    written before the payload), falling back to a param summary. The
+    Label text comes from the shared ``tool_header_label`` helper so
+    this CLI stays in sync with the classic and TUI variants. The
     whole line uses ``tool.name`` style so it reads as one visual unit.
     """
-    label = params.get("reason") or summarize_params(name, params)
+    label = tool_header_label(name, params)
     text = f"tool → {name}: {label}" if label else f"tool → {name}"
     return Text(text, style="tool.name")
 
@@ -282,6 +273,9 @@ class RichOutput:
     # ── callbacks ─────────────────────────────────────────────────────
 
     def on_thinking(self, delta: str) -> None:
+        """Stream a thinking delta. First delta closes any prior block,
+        emits a blank-line separator, and opens a new thinking ``Live``;
+        subsequent deltas append to the existing buffer."""
         if self._kind != "thinking":
             self.close_active()
             self._blank()
@@ -289,6 +283,9 @@ class RichOutput:
         self._append(delta)
 
     def on_text(self, delta: str) -> None:
+        """Stream an assistant-response delta. First delta closes the
+        prior block, prints the themed ``agent →`` label, and opens a
+        new text ``Live`` that swaps to ``Markdown`` at stream end."""
         if self._kind != "text":
             self.close_active()
             self._blank()
@@ -297,10 +294,16 @@ class RichOutput:
             self._start_stream("text")
         self._append(delta)
 
-    def on_tool_start(self, name: str, params: dict[str, Any]) -> None:
+    def on_tool_start(
+        self, tool_use_id: str, name: str, params: dict[str, Any]
+    ) -> None:
+        """Render the tool header + optional detail, then start a spinner
+        for non-intercepted tools. ``tool_use_id`` is dropped — the rich
+        CLI pairs results positionally with the most recent header."""
+        del tool_use_id  # rich pairs positionally with the next result
         self.close_active()
         self._print_tool_preamble(name, params)
-        if name not in _INTERCEPTED_TOOLS:
+        if name not in INTERCEPTED_TOOLS:
             self.start_spinner()
 
     def _print_tool_preamble(self, name: str, params: dict[str, Any]) -> None:
@@ -318,9 +321,17 @@ class RichOutput:
             self.console.print(_indent(detail))
 
     def on_tool_result(
-        self, name: str, params: dict[str, Any], result: str, is_error: bool
+        self,
+        tool_use_id: str,
+        name: str,
+        params: dict[str, Any],
+        result: str,
+        is_error: bool,
     ) -> None:
-        del name, params  # positional — each result pairs with the most recent header
+        """Close the active spinner/stream and print a ``success ✓`` or
+        ``error: … ✗`` line. Pairing is positional — this line always
+        belongs to the most recent ``tool → …`` header above it."""
+        del tool_use_id, name, params  # rich pairs positionally with the most recent header
         self.close_active()
         self._blank()
         if is_error:
@@ -330,7 +341,17 @@ class RichOutput:
             line = Text("success ✓", style="tool.ok")
         self.console.print(_indent(line))
 
-    async def ask_permission(self, name: str, params: dict[str, Any]) -> bool:
+    async def ask_permission(
+        self, tool_use_id: str, name: str, params: dict[str, Any]
+    ) -> bool:
+        """Print the tool preamble then block on the ``[Y/n]`` prompt.
+
+        On approval, starts a spinner so the user sees progress while
+        the tool runs. The processor skips ``on_tool_start`` for
+        permission-required tools, which is why the spinner starts
+        here rather than in ``on_tool_start``.
+        """
+        del tool_use_id  # rich doesn't track tools across the contract
         self.close_active()
         self._print_tool_preamble(name, params)
         self._blank()
@@ -385,9 +406,8 @@ def _read_user_input(console: Console) -> str:
         sys.stdout.flush()
 
 
-async def repl() -> None:
+async def repl(settings: Settings) -> None:
     """Run the Rich-based interactive REPL."""
-    settings = get_settings()
     logging_config.configure(debug=settings.debug, log_dir=settings.log_dir)
 
     output = RichOutput()

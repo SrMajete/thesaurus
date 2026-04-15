@@ -32,6 +32,9 @@ class RunBashTool:
     }
     needs_permission = True
     is_parallelizable = True
+    is_intercepted = False
 
     async def execute(self, *, command: str, timeout: int = 120) -> str:
-        return await run_subprocess(command, timeout=max(1, timeout), shell=True)
+        return await run_subprocess(
+            command, timeout=max(1, min(timeout, 600)), shell=True
+        )

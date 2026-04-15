@@ -52,13 +52,16 @@ class MakePlanTool:
         },
         "required": ["thinking", "roadmap"],
     }
-    # Placeholder values. make_plan is intercepted by the processor
-    # before tool dispatch (run_loop special-cases it to update agent.plan),
-    # so these flags are never actually consulted. The honest semantic
-    # values are: needs_permission=False (we never prompt for plans),
-    # is_parallelizable=False (plans mutate agent.plan and cannot race).
+    # is_intercepted=True signals that ``execute()`` is never called —
+    # the processor handles plan dispatch (updating ``agent.plan``) and
+    # the api_client streams ``thinking`` / ``roadmap`` fields live to
+    # the user. The other two flags are still required by the Protocol;
+    # the honest semantic values are: needs_permission=False (we never
+    # prompt for plans), is_parallelizable=False (plans mutate
+    # ``agent.plan`` and cannot race).
     needs_permission = False
     is_parallelizable = False
+    is_intercepted = True
 
     async def execute(self, *, thinking: str, roadmap: str) -> str:
         """Protocol stub. Make-plan handling is intercepted by the

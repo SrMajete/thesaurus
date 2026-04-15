@@ -30,15 +30,17 @@ class SendResponseTool:
         },
         "required": ["response"],
     }
-    # Placeholder values. send_response is intercepted by the processor
-    # before tool dispatch (run_loop special-cases it to end the turn),
-    # so these flags are never actually consulted. The honest semantic
-    # values are: needs_permission=False (the response IS the user
-    # interaction — prompting "may I send this?" is nonsensical),
-    # is_parallelizable=False (there's only ever one response per turn;
-    # run_loop returns immediately on the first send_response call).
+    # is_intercepted=True signals that ``execute()`` is never called —
+    # the processor handles send_response by ending the turn and
+    # ``api_client`` streams the ``response`` field live to the user.
+    # The honest semantic values for the other two flags:
+    # needs_permission=False (the response IS the user interaction —
+    # prompting "may I send this?" is nonsensical), is_parallelizable=False
+    # (there's only ever one response per turn; run_loop returns on the
+    # first send_response call).
     needs_permission = False
     is_parallelizable = False
+    is_intercepted = True
 
     async def execute(self, *, response: str) -> str:
         """Protocol stub. Send-response handling is intercepted by the

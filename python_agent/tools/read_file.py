@@ -41,6 +41,7 @@ class ReadFileTool:
     }
     needs_permission = False
     is_parallelizable = True
+    is_intercepted = False
 
     async def execute(
         self, *, file_path: str, offset: int = 0, limit: int = DEFAULT_LIMIT

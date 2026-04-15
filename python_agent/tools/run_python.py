@@ -44,8 +44,9 @@ class RunPythonTool:
     }
     needs_permission = True
     is_parallelizable = True
+    is_intercepted = False
 
     async def execute(self, *, code: str, timeout: int = 120) -> str:
         return await run_subprocess(
-            sys.executable, "-c", code, timeout=max(1, timeout)
+            sys.executable, "-c", code, timeout=max(1, min(timeout, 600))
         )

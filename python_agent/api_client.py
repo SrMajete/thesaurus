@@ -128,7 +128,7 @@ async def stream_response(
     tools: list[dict[str, Any]],
     on_text: Callable[[str], None],
     on_thinking: Callable[[str], None],
-    on_tool_start: Callable[[str, dict[str, Any]], None],
+    on_tool_start: Callable[[str, str, dict[str, Any]], None],
 ) -> AgentResponse:
     """Call the Claude API with streaming and return a parsed response.
 
@@ -173,6 +173,7 @@ async def stream_response(
     # ``streamed[field] > 0``.
     stream_fields: list[str] | None = None
     stream_cb: Callable[[str], None] | None = None
+    current_tool_id: str | None = None
     current_tool_name: str | None = None
     header_fired = False
     json_buf = b""
@@ -188,6 +189,7 @@ async def stream_response(
                         if fields:
                             stream_fields = fields
                             stream_cb = on_thinking if block.name == ToolName.MAKE_PLAN else on_text
+                            current_tool_id = block.id
                             current_tool_name = block.name
                             header_fired = False
                             json_buf = b""
@@ -196,6 +198,7 @@ async def stream_response(
                 elif event.type == "content_block_stop":
                     stream_fields = None
                     stream_cb = None
+                    current_tool_id = None
                     current_tool_name = None
 
                 elif event.type == "content_block_delta":
@@ -203,6 +206,7 @@ async def stream_response(
                         event.delta.type == "input_json_delta"
                         and stream_fields
                         and stream_cb
+                        and current_tool_id
                         and current_tool_name
                     ):
                         json_buf += event.delta.partial_json.encode()
@@ -213,17 +217,25 @@ async def stream_response(
                         except ValueError:
                             continue  # buffer isn't parseable yet; wait for more bytes
 
-                        # Fire the tool header once, as soon as any streamable
-                        # field has meaningful (non-whitespace) content. The
-                        # parsed snapshot is passed as ``params`` so the header
-                        # can read ``reason`` — which the schema lists first,
-                        # so it's already populated by this point.
-                        if not header_fired and any(
+                        # Fire the tool header once, when the parsed snapshot
+                        # has BOTH a populated ``reason`` and meaningful content
+                        # in a streamable field. Gating on ``reason`` — not just
+                        # the streamable field — avoids the race where
+                        # ``thinking`` already has bytes but ``reason`` is still
+                        # being parsed; that race produced ``tool → make_plan``
+                        # with no label. Reason appears first in every tool
+                        # schema (see ``REASON_FIELD_DESCRIPTION`` injection)
+                        # so this gate adds at most a few bytes of delay.
+                        reason_ready = isinstance(
+                            parsed.get("reason"), str
+                        ) and parsed["reason"].strip()
+                        stream_ready = any(
                             isinstance(parsed.get(f), str)
                             and parsed.get(f, "").strip()
                             for f in stream_fields
-                        ):
-                            on_tool_start(current_tool_name, parsed)
+                        )
+                        if not header_fired and reason_ready and stream_ready:
+                            on_tool_start(current_tool_id, current_tool_name, parsed)
                             header_fired = True
 
                         # Emit each field's rendered delta. ``_render_field``

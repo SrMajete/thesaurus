@@ -1,13 +1,23 @@
-"""One-line previews of tool-call parameters for the CLI display.
+"""Per-tool display metadata shared by every CLI frontend.
 
-Both CLI implementations (classic and rich) render the same summary
-per tool, so the mapping lives here as a single source of truth.
-Keys are ``ToolName`` members — not raw strings — so the link to the
-tool enum is type-checkable.
+- ``SUMMARIZERS`` — param → one-line preview string, used by tool
+  headers and permission prompts.
+- ``summarize_params`` — safe lookup wrapper for ``SUMMARIZERS``.
+- ``tool_header_label`` — the ``{reason or summary}`` fallback that
+  every CLI uses under its ``tool → {name}: …`` header. Centralised
+  here so all three CLIs stay in sync if the fallback rule changes.
+- ``INTERCEPTED_TOOLS`` — names of tools whose ``execute()`` is never
+  called because the processor intercepts them. Derived from the
+  ``is_intercepted`` flag on each tool so the registry stays the
+  single source of truth.
+
+Keyed by ``ToolName`` members (``StrEnum``, so they compare equal to
+strings at runtime) — the link to the tool registry is type-checkable.
 """
 
 from typing import Any, Callable
 
+from .tools import get_default_tools
 from .tools.base import ToolName
 
 
@@ -33,3 +43,30 @@ def summarize_params(name: str, params: dict[str, Any]) -> str:
     """Return a one-line preview of a tool call's params for the CLI display."""
     summarizer = SUMMARIZERS.get(name)
     return summarizer(params) if summarizer else str(params)[:100]
+
+
+def tool_header_label(name: str, params: dict[str, Any]) -> str:
+    """Return the label half of a ``tool → {name}: {label}`` header.
+
+    Falls back to the model's ``reason`` when present, otherwise to
+    the param summary, otherwise to empty (in which case the caller
+    should render just ``tool → {name}`` with no trailing colon).
+
+    Single source of truth for all three CLI frontends — classic,
+    rich, and TUI. Each CLI wraps the returned string in its own
+    styling (ANSI, Rich ``Text``, Textual ``Static``) but the text
+    content is identical across them.
+    """
+    return params.get("reason") or summarize_params(name, params)
+
+
+# Tools whose ``execute()`` is never called — the processor intercepts
+# them and routes their content through ``on_thinking`` / ``on_text``
+# streaming instead. UI code skips the "running" spinner for these
+# since the streamed content itself is the progress indicator.
+# Derived from each tool's ``is_intercepted`` class attribute so the
+# registry stays the single source of truth — adding a new intercepted
+# tool means setting the flag on its class, not touching this list.
+INTERCEPTED_TOOLS: frozenset[str] = frozenset(
+    tool.name for tool in get_default_tools() if tool.is_intercepted
+)

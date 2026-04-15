@@ -37,14 +37,33 @@ class AgentCallbacks:
     """I/O callbacks that the agent delegates to the caller.
 
     This is the boundary between the agent's logic and the outside world.
-    The agent never calls print() or input() directly — it uses these instead.
+    The agent never calls ``print()`` or ``input()`` directly — it uses
+    these instead.
+
+    Every tool-related callback carries ``tool_use_id`` as its first
+    argument — the identifier assigned by the Claude API to each
+    ``tool_use`` block. Consumers that need to pair ``on_tool_result``
+    with its earlier ``on_tool_start`` / ``ask_permission`` must key
+    on that ID: relying on tool ``name`` is incorrect when the model
+    issues several parallel calls to the same tool (their names
+    collide, IDs don't). The TUI uses the ID; the classic and Rich
+    CLIs pair positionally (their output is sequential and transient)
+    and explicitly ``del`` the parameter.
+
+    Design note on the uniform signature: every consumer receives the
+    ID, even the two that drop it. The alternative — split into two
+    callback surfaces, one ID-aware — adds more complexity than it
+    removes (two parallel event shapes, double wiring in the
+    processor) for one marginal win. A single contract with one line
+    of ``del`` per opt-out is clearer, so the contract encodes what's
+    *available* to every consumer, not what each one happens to need.
     """
 
     on_thinking: Callable[[str], None]
     on_text: Callable[[str], None]
-    on_tool_start: Callable[[str, dict[str, Any]], None]
-    on_tool_result: Callable[[str, dict[str, Any], str, bool], None]
-    ask_permission: Callable[[str, dict[str, Any]], Awaitable[bool]]
+    on_tool_start: Callable[[str, str, dict[str, Any]], None]
+    on_tool_result: Callable[[str, str, dict[str, Any], str, bool], None]
+    ask_permission: Callable[[str, str, dict[str, Any]], Awaitable[bool]]
 
 
 # ───────────────────────────────────────────────────────────────────────────

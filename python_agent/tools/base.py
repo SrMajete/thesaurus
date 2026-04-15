@@ -62,7 +62,7 @@ class Tool(Protocol):
     """Contract that every tool must satisfy.
 
     Uses plain attribute annotations so concrete tools can just set
-    class-level constants. Two orthogonal flags control dispatch:
+    class-level constants. Three flags control dispatch and lifecycle:
 
     - ``needs_permission``: if True, the user must approve the call before
       it executes. Read-oriented tools (``read_file``, ``make_plan``) set
@@ -72,10 +72,17 @@ class Tool(Protocol):
       with peers in the same batch via ``asyncio.gather``. Tools that do
       blocking synchronous I/O or that share mutable state with each
       other must set False.
+    - ``is_intercepted``: if True, ``execute()`` is never called — the
+      processor handles the tool specially (``make_plan`` updates
+      ``agent.plan``; ``send_response`` ends the turn) and ``api_client``
+      streams the tool's input fields live to the user via
+      ``on_thinking`` / ``on_text``. Default: False (most tools execute
+      normally). UI code reads this flag to skip per-tool spinners since
+      the streamed content itself is the progress indicator.
 
-    Both flags must be declared explicitly — no defaults. A new tool that
-    forgets to think about either dimension breaks at import time, not at
-    runtime. All four combinations are meaningful:
+    The first two flags must be declared explicitly — no defaults. A
+    new tool that forgets to think about either dimension breaks at
+    import time, not at runtime. All four combinations are meaningful:
 
     - (False, True)  → auto-parallel        (read_file, glob_files, grep_files)
     - (False, False) → auto-serial          (make_plan, send_response)
@@ -88,6 +95,7 @@ class Tool(Protocol):
     input_schema: dict[str, Any]
     needs_permission: bool
     is_parallelizable: bool
+    is_intercepted: bool = False
 
     async def execute(self, **params: Any) -> str:
         """Run the tool and return a string result.
@@ -95,6 +103,9 @@ class Tool(Protocol):
         Parameters are unpacked from the LLM's tool_use input dict. Any
         exception raised here is caught by the agent loop, converted to an
         error string, and sent back to the LLM so it can recover.
+
+        Intercepted tools (``is_intercepted=True``) never have this
+        called — the processor handles them specially.
         """
         ...
 

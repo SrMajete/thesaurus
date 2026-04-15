@@ -48,6 +48,7 @@ class GrepFilesTool:
     }
     needs_permission = False
     is_parallelizable = True
+    is_intercepted = False
 
     async def execute(
         self, *, pattern: str, path: str = ".", include: str = ""

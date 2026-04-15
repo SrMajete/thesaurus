@@ -47,6 +47,7 @@ class EditFileTool:
     }
     needs_permission = True
     is_parallelizable = False
+    is_intercepted = False
 
     _MAX_FILE_SIZE = 1_000_000_000  # 1 GB
 
@@ -78,7 +79,10 @@ class EditFileTool:
         if b"\x00" in content[:8192]:
             return f"Error: {file_path} appears to be a binary file."
 
-        text = content.decode(errors="replace")
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            return f"Error: {file_path} is not valid UTF-8 — cannot edit safely."
         count = text.count(old_text)
 
         if count == 0:
@@ -98,7 +102,7 @@ class EditFileTool:
         new_content = text.replace(old_text, new_text, 1)
 
         try:
-            path.write_text(new_content)
+            path.write_text(new_content, encoding="utf-8")
         except PermissionError:
             return f"Error: permission denied: {file_path}"
         except OSError as e:

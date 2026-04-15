@@ -35,13 +35,14 @@ class WriteFileTool:
     }
     needs_permission = True
     is_parallelizable = False
+    is_intercepted = False
 
     async def execute(self, *, file_path: str, content: str) -> str:
         path = Path(file_path)
 
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content)
+            path.write_text(content, encoding="utf-8")
         
         except PermissionError:
             return f"Error: permission denied: {file_path}"

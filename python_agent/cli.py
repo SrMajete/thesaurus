@@ -14,8 +14,8 @@ from typing import Any
 from . import logging_config
 from .agent import Agent, AgentCallbacks
 from .client import make_client
-from .config import get_settings
-from .tool_summaries import summarize_params
+from .config import Settings
+from .tool_summaries import summarize_params, tool_header_label
 from .tools import get_default_tools
 
 
@@ -129,7 +129,9 @@ class TerminalOutput:
         self._last = _DisplayState.TEXT
         self._print_wrapped(delta, LIGHT_GREEN)
 
-    def on_tool_start(self, name: str, params: dict[str, Any]) -> None:
+    def on_tool_start(
+        self, tool_use_id: str, name: str, params: dict[str, Any]
+    ) -> None:
         """Print tool name and the model's reason, waiting for result on the same line.
 
         Leaves the cursor mid-line on the rendered header (with a trailing
@@ -139,17 +141,23 @@ class TerminalOutput:
         a single source of truth for the cursor position, and matches the
         same convention ``_print_wrapped`` uses.
         """
+        del tool_use_id  # classic uses positional pairing with the next result
         if self._last == _DisplayState.THINKING:
             print(RESET, end="", flush=True)
         sep = "\n" if self._last == _DisplayState.TOOL else "\n\n"
         self._last = _DisplayState.TOOL
-        label = params.get("reason") or summarize_params(name, params)
-        line = self._fit(f"tool → {name}: {label}")
+        label = tool_header_label(name, params)
+        line = self._fit(f"tool → {name}: {label}" if label else f"tool → {name}")
         print(f"{sep}{BOLD}{ORANGE}{line}{RESET} ", end="", flush=True)
         self._col = len(line) + 1
 
     def on_tool_result(
-        self, name: str, params: dict[str, Any], result: str, is_error: bool
+        self,
+        tool_use_id: str,
+        name: str,
+        params: dict[str, Any],
+        result: str,
+        is_error: bool,
     ) -> None:
         """Print the tool result on its own line: ``✓ success`` or ``✗ error: {message}``.
 
@@ -168,7 +176,7 @@ class TerminalOutput:
           the user's Enter and the cursor is at column 0 (``_col == 0``),
           so ``\\n`` is enough to leave one blank line.
         """
-        del name, params  # part of the AgentCallbacks contract; not used in this implementation
+        del tool_use_id, name, params  # classic pairs positionally with the most recent header
         lead = "\n\n" if self._col > 0 else "\n"
         if is_error:
             error = self._fit(f"error: {result}")
@@ -177,12 +185,15 @@ class TerminalOutput:
             print(f"{lead}{BOLD}{GREEN}success ✓{RESET}", flush=True)
         self._col = 0
 
-    async def ask_permission(self, name: str, params: dict[str, Any]) -> bool:
+    async def ask_permission(
+        self, tool_use_id: str, name: str, params: dict[str, Any]
+    ) -> bool:
         """Prompt the user before executing a non-read-only tool.
 
         Shows the model's reason AND the raw parameters — the user needs to
         see what they're actually approving, not just a paraphrase.
         """
+        del tool_use_id  # classic doesn't track tools across the contract
         if self._last == _DisplayState.THINKING:
             print(RESET, end="", flush=True)
         sep = "\n" if self._last == _DisplayState.TOOL else "\n\n"
@@ -221,9 +232,8 @@ class TerminalOutput:
 # ───────────────────────────────────────────────────────────────────────────
 
 
-async def repl() -> None:
-    """Run the interactive REPL."""
-    settings = get_settings()
+async def repl(settings: Settings) -> None:
+    """Run the interactive classic-CLI REPL."""
     logging_config.configure(debug=settings.debug, log_dir=settings.log_dir)
 
     output = TerminalOutput()

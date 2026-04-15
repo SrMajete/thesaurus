@@ -47,6 +47,14 @@ async def run_loop(agent: "Agent") -> None:
 
     Reads and writes ``agent.messages``. Uses ``agent.callbacks`` for I/O.
     ``agent.max_turns`` prevents infinite tool loops.
+
+    Invariant protected by a ``try/finally`` around the body: every
+    ``tool_use`` block in an appended assistant message must have a
+    matching ``tool_result`` in the next user message. If an exception
+    (``KeyboardInterrupt`` mid-execution, a callback raising, etc.)
+    would otherwise orphan the ``tool_use`` blocks, the finally stubs
+    them with error ``tool_result``s so the session survives the next
+    API call. The exception still propagates.
     """
     for turn in range(agent.max_turns):
         logger.info("═══ Turn %d/%d ═══", turn + 1, agent.max_turns)
@@ -81,50 +89,84 @@ async def run_loop(agent: "Agent") -> None:
         if not response.tool_calls:
             return
 
-        # Extract all make_plan calls — the prompt forbids more than one
-        # per turn, but handle the misbehaving case so every tool_use gets
-        # a matching tool_result and the next API call isn't rejected.
-        plan_calls = [c for c in response.tool_calls if c.name == ToolName.MAKE_PLAN]
-        if plan_calls:
-            # Use the first plan's content for agent.plan (predictable if the
-            # model misbehaves and emits multiple). The streaming path in
-            # api_client.py already rendered each plan's content live.
-            first = plan_calls[0]
-            agent.plan = _format_plan(
-                first.input.get("thinking", ""),
-                first.input.get("roadmap", ""),
-            )
-            if agent.plan:
-                logger.info("Plan: %s", agent.plan)
+        # Guard the stretch between the assistant-message append above and
+        # the user-message append below: if anything raises in between
+        # (KeyboardInterrupt, a callback, a tool, _execute_tool_calls), we
+        # owe the API a user message with tool_results — otherwise the
+        # next call 400s on the orphaned tool_use blocks.
+        results_appended = False
+        try:
+            # Extract all make_plan calls — the prompt forbids more than one
+            # per turn, but handle the misbehaving case so every tool_use gets
+            # a matching tool_result and the next API call isn't rejected.
+            plan_calls = [c for c in response.tool_calls if c.name == ToolName.MAKE_PLAN]
+            if plan_calls:
+                # Use the first plan's content for agent.plan (predictable if the
+                # model misbehaves and emits multiple). The streaming path in
+                # api_client.py already rendered each plan's content live.
+                first = plan_calls[0]
+                agent.plan = _format_plan(
+                    first.input.get("thinking", ""),
+                    first.input.get("roadmap", ""),
+                )
+                if agent.plan:
+                    logger.info("Plan: %s", agent.plan)
 
-        # Check for send_response tool calls — the "I'm done" signal
-        respond_calls = [c for c in response.tool_calls if c.name == ToolName.SEND_RESPONSE]
-        if respond_calls:
-            # The send_response header and body were streamed live during
-            # the API call. All that's left is to emit tool_results so the
-            # message history stays valid — every tool_use block needs its
-            # match.
-            respond_ids = {c.id for c in respond_calls}
-            plan_ids = {c.id for c in plan_calls}
-            all_results = []
-            for call in response.tool_calls:
-                if call.id in respond_ids:
-                    response_text = call.input.get("response", "")
-                    all_results.append(tool_result(call.id, response_text))
-                elif call.id in plan_ids:
-                    all_results.append(tool_result(call.id, "Plan acknowledged."))
-                else:
-                    all_results.append(tool_result(call.id, "Skipped — send_response ended the turn."))
-            agent.messages.append(user_message(all_results))
-            return
+            # Check for send_response tool calls — the "I'm done" signal
+            respond_calls = [c for c in response.tool_calls if c.name == ToolName.SEND_RESPONSE]
+            if respond_calls:
+                # The send_response header and body were streamed live during
+                # the API call. All that's left is to emit tool_results so the
+                # message history stays valid — every tool_use block needs its
+                # match.
+                respond_ids = {c.id for c in respond_calls}
+                plan_ids = {c.id for c in plan_calls}
+                all_results = []
+                for call in response.tool_calls:
+                    if call.id in respond_ids:
+                        response_text = call.input.get("response", "")
+                        all_results.append(tool_result(call.id, response_text))
+                    elif call.id in plan_ids:
+                        all_results.append(tool_result(call.id, "Plan acknowledged."))
+                    else:
+                        # Model violated the prompt and emitted other tools
+                        # alongside send_response. Fire both callbacks so the
+                        # user sees the dropped tool. on_tool_start is
+                        # required first: the TUI asserts every tool_result
+                        # has a matching registered tool_start
+                        # (cli_tui.py:744); the two scroll-based CLIs don't
+                        # care about ordering.
+                        skipped = "Skipped — send_response ended the turn."
+                        agent.callbacks.on_tool_start(call.id, call.name, call.input)
+                        agent.callbacks.on_tool_result(
+                            call.id, call.name, call.input, skipped, True
+                        )
+                        all_results.append(tool_result(call.id, skipped))
+                agent.messages.append(user_message(all_results))
+                results_appended = True
+                return
 
-        # Execute remaining tools (make_plan already handled above)
-        remaining_calls = [c for c in response.tool_calls if c.name != ToolName.MAKE_PLAN]
-        plan_results = [tool_result(c.id, "Plan acknowledged.") for c in plan_calls]
+            # Execute remaining tools (make_plan already handled above)
+            remaining_calls = [c for c in response.tool_calls if c.name != ToolName.MAKE_PLAN]
+            plan_results = [tool_result(c.id, "Plan acknowledged.") for c in plan_calls]
 
-        # Execute remaining tool calls
-        tool_results = await _execute_tool_calls(agent, remaining_calls) if remaining_calls else []
-        agent.messages.append(user_message(plan_results + tool_results))
+            # Execute remaining tool calls
+            tool_results = await _execute_tool_calls(agent, remaining_calls) if remaining_calls else []
+            agent.messages.append(user_message(plan_results + tool_results))
+            results_appended = True
+        finally:
+            if not results_appended:
+                # Preserve the tool_use ↔ tool_result invariant so the next
+                # API call isn't rejected. The exception still propagates.
+                stub_results = [
+                    tool_result(
+                        c.id,
+                        "Interrupted before execution completed.",
+                        is_error=True,
+                    )
+                    for c in response.tool_calls
+                ]
+                agent.messages.append(user_message(stub_results))
 
     # max_turns exhausted — logger.warning surfaces this to stderr via
     # the stderr handler, and the assistant message makes the model aware.
@@ -247,7 +289,9 @@ async def _collect_decisions(
             decisions.append((call, None, False))
             continue
         if needs_permission:
-            allowed = await agent.callbacks.ask_permission(call.name, call.input)
+            allowed = await agent.callbacks.ask_permission(
+                call.id, call.name, call.input
+            )
             logger.info(
                 "Permission for %s: %s",
                 call.name,
@@ -293,17 +337,17 @@ async def _execute_decisions(
     ) -> tuple[str, bool]:
         if tool is None:
             err = f"Error: unknown tool '{call.name}'"
-            agent.callbacks.on_tool_result(call.name, call.input, err, True)
+            agent.callbacks.on_tool_result(call.id, call.name, call.input, err, True)
             return err, True
         if not allowed:
             denied = "Permission denied by the user."
-            agent.callbacks.on_tool_result(call.name, call.input, denied, True)
+            agent.callbacks.on_tool_result(call.id, call.name, call.input, denied, True)
             return denied, True
         if not needs_permission:
             # Auto path: the header has not been rendered yet, so fire
             # on_tool_start. The approve path skips this because
             # ask_permission already rendered the header in Phase 1.
-            agent.callbacks.on_tool_start(call.name, call.input)
+            agent.callbacks.on_tool_start(call.id, call.name, call.input)
         try:
             result = await tool.execute(**_strip_reason(call.input))
             is_error = False
@@ -311,7 +355,7 @@ async def _execute_decisions(
             logger.exception("Tool %s failed", call.name)
             result = f"Error: {e}"
             is_error = True
-        agent.callbacks.on_tool_result(call.name, call.input, result, is_error)
+        agent.callbacks.on_tool_result(call.id, call.name, call.input, result, is_error)
         return result, is_error
 
     if is_parallelizable:

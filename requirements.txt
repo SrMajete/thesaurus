@@ -3,3 +3,5 @@ pydantic-settings==2.13.1
 jiter>=0.13.0
 ripgrep>=15.0.0
 rich==15.0.0
+textual==8.2.3
+pyfiglet==1.0.4

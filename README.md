@@ -1,6 +1,6 @@
 # Python Agent
 
-A streaming, tool-calling AI agent built on the Anthropic Claude API. Learning lab for agentic AI patterns — minimal core, easy to extend, two terminal UIs.
+A streaming, tool-calling AI agent built on the Anthropic Claude API. Learning lab for agentic AI patterns — minimal core, easy to extend, three terminal UIs.
 
 ## Quick start
 
@@ -15,8 +15,9 @@ cp .env.example .env
 # edit .env — set ANTHROPIC_API_KEY (or switch to AWS Bedrock)
 
 # 3. Run
-python -m python_agent          # rich UI (default)
+python -m python_agent                     # rich UI (default)
 CLI_STYLE=classic python -m python_agent   # hand-rolled ANSI UI
+CLI_STYLE=tui     python -m python_agent   # full-screen Textual TUI
 ```
 
 ## What it does
@@ -34,8 +35,9 @@ Built-in tools: `read_file`, `write_file`, `edit_file`, `glob_files`, `grep_file
 python_agent/
 ├── cli.py           classic ANSI UI
 ├── cli_rich.py      Rich-library UI (default)
+├── cli_tui.py       Textual full-screen TUI
 ├── client.py        AsyncAnthropic | AsyncAnthropicBedrock factory
-├── tool_summaries.py  per-tool param previews shared by both UIs
+├── tool_summaries.py  per-tool param previews shared by all three UIs
 ├── agent.py         conversation state + callback contract
 ├── processor.py     agentic loop (tool dispatch, streaming)
 ├── api_client.py    streaming Claude API call + jiter partial-JSON

@@ -30,6 +30,7 @@ htmlcov/
 # Project
 logs/
 experiments/
+todos.txt
 
 # Original Code
 original_code

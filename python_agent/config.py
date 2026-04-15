@@ -37,9 +37,11 @@ class Settings(BaseSettings):
     max_turns: int = 10
     log_dir: Path = Path(__file__).resolve().parent.parent / "logs"
 
-    # Terminal UI. "rich" is the default; set CLI_STYLE=classic to use the
-    # original hand-rolled ANSI renderer instead.
-    cli_style: Literal["classic", "rich"] = "rich"
+    # Terminal UI variant. Default is "rich" (Rich library, scroll-based).
+    # "classic" uses the original hand-rolled ANSI renderer.
+    # "tui" launches a full-screen Textual TUI (fixed input, scrollable
+    # history, mouse support, collapsible tool blocks).
+    cli_style: Literal["classic", "rich", "tui"] = "rich"
 
     # AWS Bedrock settings (only used when provider=bedrock)
     aws_region: str | None = None
