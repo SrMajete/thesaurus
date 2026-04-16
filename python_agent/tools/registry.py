@@ -13,6 +13,7 @@ from .read_file import ReadFileTool
 from .run_bash import RunBashTool
 from .run_python import RunPythonTool
 from .send_response import SendResponseTool
+from .web_search import WebSearchTool
 from .write_file import WriteFileTool
 
 
@@ -28,5 +29,6 @@ def get_default_tools() -> list[Tool]:
         GlobFilesTool(),
         GrepFilesTool(),
         FetchUrlTool(),
+        WebSearchTool(),
         SendResponseTool(),
     ]

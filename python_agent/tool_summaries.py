@@ -37,6 +37,7 @@ SUMMARIZERS: dict[ToolName, Callable[[dict[str, Any]], str]] = {
     ToolName.MAKE_PLAN: lambda *_: "",
     ToolName.SEND_RESPONSE: lambda *_: "",
     ToolName.FETCH_URL: lambda p: p.get("url", ""),
+    ToolName.WEB_SEARCH: lambda p: p.get("query", ""),
 }
 
 

@@ -25,6 +25,33 @@ Every change in this codebase — new code, reviews, refactors, bug fixes, style
 15. **Encapsulation** — Hide internals behind stable interfaces; expose intent, not structure.
 16. **High Cohesion / Loose Coupling** — Related code together, unrelated code apart.
 
+## Writing Rules
+
+1. Don't add features, refactor code, or make "improvements" beyond what was asked. A bug fix doesn't need surrounding code cleaned up. A simple feature doesn't need extra configurability.
+2. Don't add docstrings, comments, or type annotations to code you didn't change. Only add comments where the logic isn't self-evident.
+3. Don't add error handling, fallbacks, or validation for scenarios that can't happen. Trust internal code and framework guarantees. Only validate at system boundaries (user input, external APIs). Don't use feature flags or backwards-compatibility shims when you can just change the code.
+4. Don't create helpers, utilities, or abstractions for one-time operations. Don't design for hypothetical future requirements. The right amount of complexity is what the task actually requires — no speculative abstractions, but no half-finished implementations either. Three similar lines of code is better than a premature abstraction.
+5. Avoid backwards-compatibility hacks like renaming unused _vars, re-exporting types, adding // removed comments for removed code, etc. If you are certain that something is unused, you can delete it completely.
+6. Prefer the shorter version when both work. The most elegant code is the code that isn't there — verbose is not the same as clear. After finishing a function or refactor, ask "could this be expressed in fewer lines without losing meaning?" and apply the answer. The brake against over-simplifying is rule 4 (no speculative abstractions): if shortening requires inventing a new helper class or a clever generic, the verbose version was right.
+7. Check the Good Coding Principles list before finishing. After completing a change — code, finding, recommendation, or plan — scan the principles and ask "did I violate any of these?" If you can name a violation, fix it within the scope of your work. A clean output is one where you can affirmatively state "no principle violated" — not one where you can't find anything wrong.
+
+## Reviewing (Named Smells)
+
+When the task is review or analysis (not a specific bug), scan for each of these named smells as a checklist, not by freeform search. A finding you can cite by name is stronger than one you can only describe. For each smell you report, identify which principle from the Good Coding Principles it violates — smells are symptoms, principles name the cause.
+
+1. **Redundant state.** State that duplicates other state; cached values that could be derived; observers that could be direct calls.
+2. **Parameter sprawl.** New parameters added instead of generalizing or restructuring existing ones.
+3. **Copy-paste with slight variation.** Near-duplicate blocks that must stay in sync to stay correct — past the "three similar lines" threshold.
+4. **Leaky abstractions.** Internals exposed through module boundaries, over-exported `__init__` surfaces, logic that crosses the wrong layer.
+5. **Stringly-typed code.** Raw strings where constants, enums, or branded types already exist.
+6. **Dead or speculative infrastructure.** Empty collections with explanatory comments, pass-through functions, wrapper classes with a single staticmethod, conditionals whose false branch never fires. Delete the check and the thing it checks against.
+7. **Hot-path waste.** Subprocess calls, file reads, or recomputation that runs every turn/call/render when once-per-session would do.
+8. **Missed concurrency.** Independent operations run serially when they could run in parallel.
+9. **Inline comments explaining WHAT.** Good names already do that; keep only non-obvious WHY. Module, class, and function docstrings are separate — rich docstrings remain desirable.
+10. **Verbosity that doesn't earn its keep.** Long functions, deep nesting, repeated patterns, or 5-line expressions that could be 1 — usually a sign that a simpler shape is hiding underneath.
+
+After listing findings: cluster by root cause, triage by impact × cost, and name specific strengths (not generic praise).
+
 ## Self-Review Checklist (MANDATORY)
 
 Run at three points: before presenting a plan, before writing code, and before declaring work done. Not optional.
@@ -77,7 +104,7 @@ shared helpers: client.py (API client factory) · tool_summaries.py (SUMMARIZERS
 - **File I/O:** `read_file`, `write_file`, `edit_file` (supports `replace_all` for bulk replacements)
 - **Search:** `glob_files`, `grep_files`
 - **Execution:** `run_bash`, `run_python`
-- **Web:** `fetch_url` (HTTP GET → markdown/text/HTML via `httpx` + `markdownify`)
+- **Web:** `fetch_url` (HTTP GET → markdown/text/HTML via `httpx` + `markdownify`), `web_search` (DuckDuckGo via `ddgs`)
 - **Agent control:** `make_plan`, `send_response` (intercepted)
 
 ## Adding a Tool

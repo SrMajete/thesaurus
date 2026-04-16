@@ -39,3 +39,5 @@ original_code
 
 # Open Code
 opencode
+htmlcov/
+.coverage

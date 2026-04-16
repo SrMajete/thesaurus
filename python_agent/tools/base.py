@@ -43,6 +43,7 @@ class ToolName(StrEnum):
     MAKE_PLAN = "make_plan"
     SEND_RESPONSE = "send_response"
     FETCH_URL = "fetch_url"
+    WEB_SEARCH = "web_search"
 
 
 REASON_FIELD_DESCRIPTION = (
