@@ -5,19 +5,18 @@ A streaming AI agent built on the Anthropic Claude API. Learning lab for agentic
 ## Architecture
 
 ```
-cli.py          ┐
-cli_rich.py     ┤→ agent.py (state) → processor.py (logic) → api_client.py (API)
-cli_tui.py      │                            ↕
-(I/O frontends) │                       tools/*.py (execution)
-                │
-shared: client.py (API client factory) · tool_summaries.py (SUMMARIZERS, INTERCEPTED_TOOLS)
+cli_tui.py → agent.py (state) → processor.py (logic) → api_client.py (API)
+                                        ↕
+                                   tools/*.py (execution)
+
+shared helpers: client.py (API client factory) · tool_summaries.py (SUMMARIZERS, INTERCEPTED_TOOLS)
 ```
 
 - **Agent** owns state (messages, plan, tools, callbacks). One instance per session.
 - **Processor** owns the loop logic. Pure — no I/O, no state.
 - **API client** streams with jiter partial JSON parsing (`make_plan.thinking`, `make_plan.roadmap`, `send_response.response`).
 - **Tools** satisfy a `Tool` Protocol via class-level attributes. No inheritance. Adding one: new class + `ToolName` entry + registry line + summarizer entry.
-- **Callbacks** (`AgentCallbacks` dataclass) decouple the agent from I/O. Every tool-related callback carries a `tool_use_id` so consumers can pair start/result — `name` collides on parallel calls. TUI keys on the ID; classic/rich pair positionally.
+- **Callbacks** (`AgentCallbacks` dataclass) decouple the agent from I/O. Every tool-related callback carries a `tool_use_id` so the TUI can pair start/result precisely — `name` collides on parallel calls.
 
 ## Good Coding Principles
 
@@ -67,15 +66,15 @@ Before presenting a plan or accepting work as done:
 - **`ToolName` StrEnum:** single source of truth for tool names
 - **No code in `__init__.py`** — re-exports only
 
-## Provider & CLI
+## Provider & Run
 
 `API_PROVIDER` in `.env`: `anthropic` (default, needs `ANTHROPIC_API_KEY`) or `bedrock` (AWS creds + ARN inference-profile model IDs).
 
 ```bash
-python -m python_agent                     # rich UI (default)
-CLI_STYLE=classic python -m python_agent   # hand-rolled ANSI, no third-party TUI deps
-CLI_STYLE=tui     python -m python_agent   # full-screen Textual TUI (requires real TTY)
+python -m python_agent
 ```
+
+Launches the Textual TUI. Requires a real TTY (fails on piped stdin).
 
 ## Adding a Tool
 

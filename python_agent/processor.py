@@ -148,9 +148,7 @@ async def run_loop(agent: "Agent") -> None:
                         # alongside send_response. Fire both callbacks so the
                         # user sees the dropped tool. on_tool_start is
                         # required first: the TUI asserts every tool_result
-                        # has a matching registered tool_start
-                        # (cli_tui.py:744); the two scroll-based CLIs don't
-                        # care about ordering.
+                        # has a matching registered tool_start.
                         skipped = "Skipped — send_response ended the turn."
                         agent.callbacks.on_tool_start(call.id, call.name, call.input)
                         agent.callbacks.on_tool_result(

@@ -33,15 +33,8 @@ class Settings(BaseSettings):
     api_provider: Literal["anthropic", "bedrock"] = "anthropic"
     anthropic_api_key: str | None = None
     model: str = "claude-sonnet-4-20250514"
-    debug: bool = False
     max_turns: int = 10
     log_dir: Path = Path(__file__).resolve().parent.parent / "logs"
-
-    # Terminal UI variant. Default is "rich" (Rich library, scroll-based).
-    # "classic" uses the original hand-rolled ANSI renderer.
-    # "tui" launches a full-screen Textual TUI (fixed input, scrollable
-    # history, mouse support, collapsible tool blocks).
-    cli_style: Literal["classic", "rich", "tui"] = "rich"
 
     # AWS Bedrock settings (only used when provider=bedrock)
     aws_region: str | None = None

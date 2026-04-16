@@ -2,7 +2,9 @@
 
 Sets up three independent, non-overlapping logging channels:
 
-1. **stderr** — terminal output. WARNING+ by default, DEBUG+ with debug mode.
+1. **stderr** — terminal output. WARNING+ only (Textual owns the
+   screen during a TUI session, so DEBUG on stderr would be invisible
+   anyway; warnings and errors surface if the TUI fails to initialize).
 
 2. **agent_log_{timestamp}.log** — INFO, WARNING, ERROR.
    The story: turns, tool calls, permissions, tokens, timing, errors.
@@ -36,7 +38,7 @@ class _DebugOnlyFilter(logging.Filter):
         return record.levelno == logging.DEBUG
 
 
-def configure(debug: bool, log_dir: Path) -> None:
+def configure(log_dir: Path) -> None:
     """Initialize logging. Call once at startup."""
     our_logger = logging.getLogger("python_agent")
     our_logger.setLevel(logging.DEBUG)
@@ -47,7 +49,7 @@ def configure(debug: bool, log_dir: Path) -> None:
 
     # ── stderr (terminal) ─────────────────────────────────────────
     stderr_handler = logging.StreamHandler()
-    stderr_handler.setLevel(logging.DEBUG if debug else logging.WARNING)
+    stderr_handler.setLevel(logging.WARNING)
     stderr_handler.setFormatter(logging.Formatter(
         "\n┌ %(asctime)s [%(name)s] %(levelname)s\n└ %(message)s\n"
     ))

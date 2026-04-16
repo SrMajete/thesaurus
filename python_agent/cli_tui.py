@@ -1,24 +1,25 @@
-"""Textual-based CLI — full-screen TUI variant.
+"""Textual-based CLI — the agent's only interface.
 
-Parallel to ``cli.py`` (classic) and ``cli_rich.py`` (Rich scroll-based
-REPL). This one uses Textual for a true TUI experience:
+Uses Textual for a true TUI experience:
 
 - fixed ``Input`` docked at the bottom (never scrolls away)
 - scrollable ``VerticalScroll`` message history above
 - mouse support, Ctrl+L clear, Ctrl+C/D quit
 - collapsible tool-call blocks with inline spinners and result rows
 - live-streaming markdown for thinking and assistant response
-- modal permission prompts
+- inline permission prompts (no modal interruption)
 
-Implements the same ``AgentCallbacks`` contract as the other two CLIs,
-so the core (``agent.py``, ``processor.py``, ``api_client.py``, tools)
-is unchanged. Callbacks fire on the Textual event loop (same asyncio
-loop ``agent.process_input`` awaits on), so no thread-bridge indirection
-is needed.
+Implements the ``AgentCallbacks`` contract the core expects, so
+``agent.py``, ``processor.py``, ``api_client.py``, and the tools are
+unchanged. Callbacks fire on the Textual event loop (same asyncio loop
+``agent.process_input`` awaits on), so no thread-bridge indirection is
+needed.
 """
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Any
 
 from pyfiglet import Figlet
@@ -30,11 +31,10 @@ from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Grid, VerticalScroll
+from textual.containers import VerticalScroll
 from textual.message import Message
-from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import Button, Static, TextArea
+from textual.widgets import Static, TextArea
 
 from . import logging_config
 from .agent import Agent, AgentCallbacks
@@ -44,15 +44,15 @@ from .tool_summaries import INTERCEPTED_TOOLS, summarize_params, tool_header_lab
 from .tools import get_default_tools
 from .tools.base import ToolName
 
+logger = logging.getLogger(__name__)
+
 
 # ───────────────────────────────────────────────────────────────────────────
 # Theme — single Textual CSS string
 # ───────────────────────────────────────────────────────────────────────────
 
-# Palette mirrors ``cli_rich.py`` (and classic ``cli.py``) — semantic
-# class names bind to the same ANSI-256 shades used elsewhere so all
-# three CLIs read as one product. Hex values below are the standard
-# xterm 256-color mappings for ANSI color indices:
+# Semantic class names bind to ANSI-256 shades. Hex values below are
+# the standard xterm 256-color mappings for ANSI color indices:
 #   ansi 111 = user.text (light blue)
 #   ansi 114 = agent.text (light green)
 #   ansi 141 = thinking (purple)
@@ -198,35 +198,15 @@ Spinner {
     margin-top: 1;
 }
 
-PermissionModal {
-    align: right middle;
-}
-
-/* Half-screen right pane: 50% width, full height. The detail row
-   takes 1fr so long commands / code blocks fill the vertical space;
-   buttons dock at the bottom. */
-#permission-dialog {
-    grid-size: 2;
-    grid-gutter: 1 2;
-    grid-rows: auto 1fr 3;
-    padding: 1 2;
-    width: 50%;
-    height: 100%;
-    border: solid #00aaaa;
-    background: $surface;
-}
-
-#permission-dialog > .dialog-header {
-    column-span: 2;
-}
-
-#permission-dialog > .dialog-detail {
-    column-span: 2;
-    /* No color override — see .tool-detail comment above. */
-}
-
-#permission-dialog Button {
-    width: 100%;
+/* Inline 'Allow execution? [Y/n]' prompt mounted below a pending
+   ToolCall when the agent requests a permission-gated tool. Padding
+   matches ``.tool-detail`` so it reads as a child row of the tool
+   block above. The blue accent is distinct from tool headers (yellow)
+   and results (green/red) so the user recognises the row as an
+   interactive prompt at a glance. */
+.permission-prompt {
+    color: #87afff;
+    padding: 1 0 0 4;
 }
 """
 
@@ -633,50 +613,23 @@ class TokenCounter(Static):
 # ───────────────────────────────────────────────────────────────────────────
 
 
-class PermissionModal(ModalScreen[bool]):
-    """Blocking modal: approve or deny a tool call. Returns ``bool``."""
+class InlinePermissionPrompt(Static):
+    """Display-only "Allow execution? [Y/n]" row beneath a pending ToolCall.
 
-    BINDINGS = [
-        Binding("escape", "deny", show=False),
-        Binding("y", "allow", show=False),
-        Binding("n", "deny", show=False),
-    ]
+    Replaces the former ``PermissionModal``. The tool widget directly
+    above already shows the command/code being requested, so this row
+    only needs to announce the prompt. The user answers by typing
+    ``y`` (or empty) / ``n`` into the regular PromptArea and pressing
+    Enter — ``AgentApp.on_prompt_submitted`` routes the input to the
+    pending permission future instead of queueing a new prompt.
 
-    def __init__(self, name: str, params: dict[str, Any]) -> None:
-        super().__init__()
-        self._name = name
-        self._params = params
+    Using the PromptArea for the answer (rather than widget-level
+    bindings) sidesteps focus-management edge cases inside
+    ``VerticalScroll`` and matches the classic CLI's answer flow.
+    """
 
-    def compose(self) -> ComposeResult:
-        yield Grid(
-            Static(
-                _tool_header_text(self._name, self._params), classes="dialog-header"
-            ),
-            Static(
-                _detail_renderable(self._name, self._params), classes="dialog-detail"
-            ),
-            Button("Allow (Y)", variant="success", id="ok"),
-            Button("Deny (N)", variant="error", id="deny"),
-            id="permission-dialog",
-        )
-
-    def on_mount(self) -> None:
-        # Focus Allow so Enter approves without needing to click/Tab first.
-        self.query_one("#ok", Button).focus()
-
-    @on(Button.Pressed, "#ok")
-    def _allow(self) -> None:
-        self.dismiss(True)
-
-    @on(Button.Pressed, "#deny")
-    def _deny(self) -> None:
-        self.dismiss(False)
-
-    def action_allow(self) -> None:
-        self.dismiss(True)
-
-    def action_deny(self) -> None:
-        self.dismiss(False)
+    def __init__(self) -> None:
+        super().__init__("Allow execution? [Y/n]", classes="permission-prompt")
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -731,22 +684,13 @@ class TuiOutput:
     async def ask_permission(
         self, tool_use_id: str, name: str, params: dict[str, Any]
     ) -> bool:
-        """Open the permission modal and block until the user dismisses it.
+        """Passthrough to ``AgentApp.ask_permission_inline``.
 
-        On approval, registers the tool widget with a spinner via
-        ``register_approved_tool`` so the user sees all approved tools
-        appear in approval order while they run in parallel.
-
-        ``push_screen_wait`` requires a worker context (Textual 8.x).
-        ``agent.process_input`` runs as a ``@work``-decorated method on
-        the App, so direct ``await`` here is correct.
+        The app owns both the inline prompt widget lifecycle and the
+        ``_pending`` registration, so this method only needs to satisfy
+        the ``AgentCallbacks`` contract.
         """
-        approved = bool(
-            await self._app.push_screen_wait(PermissionModal(name, params))
-        )
-        if approved:
-            self._app.register_approved_tool(tool_use_id, name, params)
-        return approved
+        return await self._app.ask_permission_inline(tool_use_id, name, params)
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -787,11 +731,22 @@ class AgentApp(App[None]):
         # user submit and the first streaming delta. Not per-tool.
         self._active_spinner: Spinner | None = None
         # Pending tool calls keyed by ``tool_use_id``. Entries are added
-        # when ``on_tool_start`` fires (auto-path) or ``ask_permission``
-        # returns True (approve-path); popped when the matching
+        # when ``on_tool_start`` fires (auto-path) or when
+        # ``ask_permission_inline`` returns (approve-path — registered
+        # whether approved or denied, since the processor emits a
+        # tool_result for denials too). Popped when the matching
         # ``on_tool_result`` arrives. Parallel same-name calls stay
         # correctly paired because IDs are unique per call.
         self._pending: dict[str, ToolCall] = {}
+        # Prompt queue: submissions land here; a single background worker
+        # (_drain_prompts) runs them sequentially. Lets the user type
+        # ahead while a turn is still executing.
+        self._prompt_queue: asyncio.Queue[str] = asyncio.Queue()
+        # Set by ``ask_permission_inline`` while waiting for a y/n
+        # answer typed into the PromptArea. ``on_prompt_submitted``
+        # detects a pending future and resolves it instead of queueing
+        # the input as a new user prompt.
+        self._pending_permission: asyncio.Future[bool] | None = None
 
     def compose(self) -> ComposeResult:
         """Build the static layout: scrollable message pane + token counter + input box."""
@@ -810,6 +765,9 @@ class AgentApp(App[None]):
         # line from startup instead of being blank until the first turn.
         self.query_one(TokenCounter).update_totals(0, 0, 0)
         self.query_one("#prompt", PromptArea).focus()
+        # Start the single long-running consumer that drains the prompt
+        # queue. Runs for the whole app lifetime.
+        self._drain_prompts()
 
     # ── callback targets ───────────────────────────────────────────────
 
@@ -870,7 +828,7 @@ class AgentApp(App[None]):
 
         Every tool that produces a result must have been registered in
         ``_pending`` earlier — auto-path via ``tool_start`` or
-        approve-path via ``register_approved_tool``. The assertion
+        approve-path via ``ask_permission_inline``. The assertion
         encodes that invariant; a missing entry would mean we took a
         code path that doesn't exist yet and is a real bug, not
         something to paper over.
@@ -886,20 +844,46 @@ class AgentApp(App[None]):
         # doesn't auto-scroll for descendant mounts, so trigger it.
         self.query_one("#messages", VerticalScroll).scroll_end(animate=False)
 
-    def register_approved_tool(
+    async def ask_permission_inline(
         self, tool_use_id: str, name: str, params: dict[str, Any]
-    ) -> None:
-        """Mount a tool widget for an approve-path tool just approved.
+    ) -> bool:
+        """Mount the pending ToolCall + inline permission prompt, await decision.
 
-        Called from ``TuiOutput.ask_permission`` after the modal
-        returns True. The processor skips ``on_tool_start`` for
-        permission-required tools, so this is our only chance to show
-        the inline block before the tool runs.
+        Replaces the former ``PermissionModal`` flow. The tool widget
+        renders the header + params; a single-line
+        ``InlinePermissionPrompt`` announces the decision. The user
+        answers by typing ``y`` / ``n`` (or just Enter for yes) into
+        the PromptArea — ``on_prompt_submitted`` resolves the future
+        stored on ``self._pending_permission``.
+
+        The tool widget is registered in ``_pending`` **regardless** of
+        the decision: the processor fires ``on_tool_result`` for denied
+        tools too (processor.py:359 with ``"Permission denied"``), and
+        ``tool_result`` asserts the widget is present. On approval, the
+        spinner starts; on denial, ``ToolCall.set_result`` guards its
+        spinner removal so the denial renders cleanly as an error row.
         """
+        # Match the auto-path pattern in tool_start — close any pre-tool
+        # spinner or stream so nothing lingers beneath the prompt.
+        self._close_active_stream_or_spinner()
+
         tool = ToolCall(name, params)
         self._mount_to_messages(tool)
-        tool.start_running()
+        prompt = InlinePermissionPrompt()
+        self._mount_to_messages(prompt)
+
+        future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+        self._pending_permission = future
+        try:
+            approved = await future
+        finally:
+            self._pending_permission = None
+            prompt.remove()
+
         self._pending[tool_use_id] = tool
+        if approved:
+            tool.start_running()
+        return approved
 
     # ── lifecycle helpers ──────────────────────────────────────────────
 
@@ -909,7 +893,7 @@ class AgentApp(App[None]):
         messages.scroll_end(animate=False)
 
     def _mount_blank(self) -> None:
-        """Mount an empty spacer row — the TUI analogue of cli_rich's ``_blank``."""
+        """Mount an empty spacer row for vertical breathing room."""
         self._mount_to_messages(Static("", classes="spacer"))
 
     def _mount_spinner(self, label: str) -> None:
@@ -954,23 +938,60 @@ class AgentApp(App[None]):
 
     @on(PromptArea.Submitted)
     async def on_prompt_submitted(self, event: PromptArea.Submitted) -> None:
+        """Route submissions: permission answer, slash command, or queued prompt.
+
+        When ``ask_permission_inline`` is awaiting a decision, the next
+        submission is treated as the answer (empty / ``y`` / ``yes`` →
+        approve, anything else → deny), matching classic-CLI behaviour.
+
+        Otherwise, prompts are enqueued for the consumer to run.
+        Nothing else is mounted here: the spinner/stream tracker is
+        single-slot (see ``_mount_spinner``), so mounting during an
+        active stream would corrupt it. The user message also mounts
+        in the consumer to preserve execution order — queued prompts
+        appearing above the active turn's content would be misleading.
+
+        Feedback that the submission was accepted comes from
+        ``PromptArea.action_submit`` clearing the input box.
+        """
         value = event.value.strip()
+        if self._pending_permission is not None and not self._pending_permission.done():
+            approved = value.lower() in ("", "y", "yes")
+            self._pending_permission.set_result(approved)
+            return
         if not value:
             return
         if value.startswith("/"):
             await self._handle_slash(value)
             return
-        self._mount_user_message(value)
-        self._mount_spinner("thinking")
-        self._run_turn(value)
+        self._prompt_queue.put_nowait(value)
 
-    @work(exclusive=True)
-    async def _run_turn(self, value: str) -> None:
-        """Run one agent turn as a Textual worker.
+    @work(exclusive=True, name="prompt-drain")
+    async def _drain_prompts(self) -> None:
+        """Single long-running worker. Pulls prompts and runs turns sequentially.
 
-        Must run inside a worker context so ``ask_permission`` can
+        Runs inside a worker context so ``ask_permission`` (called via
+        ``_run_one_turn`` → ``agent.process_input``) can
         ``await push_screen_wait(...)`` — Textual 8.x requires modal
         value-returning awaits to originate from a worker.
+
+        The outer try/except is belt-and-suspenders: ``_run_one_turn``
+        already catches turn-level exceptions, but an unexpected raise
+        outside that scope would otherwise silently kill the consumer
+        and stop all queueing.
+        """
+        while True:
+            value = await self._prompt_queue.get()
+            try:
+                self._mount_user_message(value)
+                self._mount_spinner("thinking")
+                await self._run_one_turn(value)
+            except Exception:
+                logger.exception("drain loop: turn raised unexpectedly")
+                self._close_active_stream_or_spinner()
+
+    async def _run_one_turn(self, value: str) -> None:
+        """Run one agent turn.
 
         After the turn ends (success or exception), mounts a horizontal
         rule summarizing that turn's token delta, and refreshes the
@@ -1026,6 +1047,14 @@ class AgentApp(App[None]):
 
     def action_clear_history(self) -> None:
         """Ctrl+L / /clear — empty the UI history (agent.messages is untouched)."""
+        # Drain any queued prompts so they don't appear after the clear.
+        while not self._prompt_queue.empty():
+            self._prompt_queue.get_nowait()
+        # Resolve any pending permission as denied — otherwise the
+        # consumer would block forever on a future whose prompt widget
+        # we're about to remove.
+        if self._pending_permission is not None and not self._pending_permission.done():
+            self._pending_permission.set_result(False)
         self.query_one("#messages", VerticalScroll).remove_children()
         self._close_active_stream_or_spinner()
         self._pending.clear()
@@ -1038,5 +1067,5 @@ class AgentApp(App[None]):
 
 def run(settings: Settings) -> None:
     """Launch the Textual TUI — called from ``__main__.py``."""
-    logging_config.configure(debug=settings.debug, log_dir=settings.log_dir)
+    logging_config.configure(log_dir=settings.log_dir)
     AgentApp(settings).run()
