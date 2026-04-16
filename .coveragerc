@@ -1,0 +1,17 @@
+[run]
+branch = True
+source = python_agent
+omit =
+    python_agent/__main__.py
+    python_agent/cli_tui.py
+    python_agent/logging_config.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    \.\.\.
+show_missing = True
+skip_covered = False

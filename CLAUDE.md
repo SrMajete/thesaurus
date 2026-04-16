@@ -2,21 +2,9 @@
 
 A streaming AI agent built on the Anthropic Claude API. Learning lab for agentic AI patterns.
 
-## Architecture
+## Prime directive
 
-```
-cli_tui.py → agent.py (state) → processor.py (logic) → api_client.py (API)
-                                        ↕
-                                   tools/*.py (execution)
-
-shared helpers: client.py (API client factory) · tool_summaries.py (SUMMARIZERS, INTERCEPTED_TOOLS)
-```
-
-- **Agent** owns state (messages, plan, tools, callbacks). One instance per session.
-- **Processor** owns the loop logic. Pure — no I/O, no state.
-- **API client** streams with jiter partial JSON parsing (`make_plan.thinking`, `make_plan.roadmap`, `send_response.response`).
-- **Tools** satisfy a `Tool` Protocol via class-level attributes. No inheritance. Adding one: new class + `ToolName` entry + registry line + summarizer entry.
-- **Callbacks** (`AgentCallbacks` dataclass) decouple the agent from I/O. Every tool-related callback carries a `tool_use_id` so the TUI can pair start/result precisely — `name` collides on parallel calls.
+Every change in this codebase — new code, reviews, refactors, bug fixes, style edits — must pass the **Self-Review Checklist** below and comply with the **Good Coding Principles**. This applies equally to one-line fixes and major refactors. If a proposed change fails the checklist, drop it.
 
 ## Good Coding Principles
 
@@ -39,7 +27,7 @@ shared helpers: client.py (API client factory) · tool_summaries.py (SUMMARIZERS
 
 ## Self-Review Checklist (MANDATORY)
 
-Before presenting a plan or accepting work as done:
+Run at three points: before presenting a plan, before writing code, and before declaring work done. Not optional.
 
 1. **Correct** — solves the stated problem, no silent regressions.
 2. **Simple** — simplest thing that works; no abstractions without a load-bearing reason.
@@ -48,6 +36,22 @@ Before presenting a plan or accepting work as done:
 5. **Maintainable** — one source of truth per concept.
 6. **No unused / irrelevant / over-complicated code** — no dead imports, no speculative flexibility. Unused parameters required by callback contracts are deleted with `del`.
 7. **Principle-compliant** — name which principles the change upholds *and* which trade-offs are deliberate. Silent trade-offs are bugs.
+
+## Architecture
+
+```
+cli_tui.py → agent.py (state) → processor.py (logic) → api_client.py (API)
+                                        ↕
+                                   tools/*.py (execution)
+
+shared helpers: client.py (API client factory) · tool_summaries.py (SUMMARIZERS, INTERCEPTED_TOOLS)
+```
+
+- **Agent** owns state (messages, plan, tools, callbacks). One instance per session.
+- **Processor** owns the loop logic. Pure — no I/O, no state.
+- **API client** streams with jiter partial JSON parsing (`make_plan.thinking`, `make_plan.roadmap`, `send_response.response`).
+- **Tools** satisfy a `Tool` Protocol via class-level attributes. No inheritance.
+- **Callbacks** (`AgentCallbacks` dataclass) decouple the agent from I/O. Every tool-related callback carries a `tool_use_id` so the TUI can pair start/result precisely — `name` collides on parallel calls.
 
 ## Key Design Decisions
 
@@ -58,6 +62,7 @@ Before presenting a plan or accepting work as done:
 - `reason` auto-injected as the first property of every tool schema so the model writes intent before payload, enabling streaming headers.
 - Prompt caching: static system cached, dynamic plan uncached, tools cached via last-tool `cache_control`, last user message gets an ephemeral breakpoint.
 - `run_loop` wraps the body after the assistant-message append in `try/finally`; any exception (KeyboardInterrupt, callback failure) that would orphan `tool_use` blocks falls through to stub `tool_result`s, preserving the API's block-pairing invariant.
+- Context pruning: old tool results are replaced with a placeholder when input tokens exceed `PRUNE_CONTEXT_THRESHOLD` of the model's max context. Logic lives in `context.py`.
 
 ## Conventions
 
@@ -65,16 +70,15 @@ Before presenting a plan or accepting work as done:
 - **Tool names:** `verb_noun` snake_case, regex-checked at `Agent.__init__`
 - **`ToolName` StrEnum:** single source of truth for tool names
 - **No code in `__init__.py`** — re-exports only
+- **Shared tool utilities** live in `tools/_helpers.py`: `truncate()`, `clamp_timeout()`, `validate_file_path()`, `is_binary()`. Use them instead of reimplementing.
 
-## Provider & Run
+## Built-in Tools
 
-`API_PROVIDER` in `.env`: `anthropic` (default, needs `ANTHROPIC_API_KEY`) or `bedrock` (AWS creds + ARN inference-profile model IDs).
-
-```bash
-python -m python_agent
-```
-
-Launches the Textual TUI. Requires a real TTY (fails on piped stdin).
+- **File I/O:** `read_file`, `write_file`, `edit_file` (supports `replace_all` for bulk replacements)
+- **Search:** `glob_files`, `grep_files`
+- **Execution:** `run_bash`, `run_python`
+- **Web:** `fetch_url` (HTTP GET → markdown/text/HTML via `httpx` + `markdownify`)
+- **Agent control:** `make_plan`, `send_response` (intercepted)
 
 ## Adding a Tool
 
@@ -86,14 +90,25 @@ Launches the Textual TUI. Requires a real TTY (fails on piped stdin).
 
 ## Refactoring
 
-When assessing refactoring opportunities, analyze the codebase for: DRY violations (same logic in multiple places), SRP violations (modules doing more than one thing), dead code, inconsistent patterns, functions exceeding ~40 lines, and compliance with the Good Coding Principles listed below. Only refactor what genuinely reduces duplication or fixes a real problem — do not refactor for style preferences or premature optimization.
+When assessing refactoring opportunities, scan for: DRY violations, SRP violations, dead code, inconsistent patterns, functions exceeding ~40 lines, and violations of any Good Coding Principle. Only refactor what genuinely reduces duplication or fixes a real problem — never for style preferences or premature optimization.
 
-Shared tool utilities live in `tools/_helpers.py`: `truncate()`, `clamp_timeout()`, `validate_file_path()`, `is_binary()`. Use these instead of reimplementing the same logic in individual tools.
+## Pre-commit policy (MANDATORY)
 
-## Built-in Tools
+Before every commit, in order:
 
-- **File I/O:** `read_file`, `write_file`, `edit_file` (supports `replace_all` for bulk replacements)
-- **Search:** `glob_files`, `grep_files`
-- **Execution:** `run_bash`, `run_python`
-- **Web:** `fetch_url` (HTTP GET → markdown/text/HTML via `httpx` + `markdownify`)
-- **Agent control:** `make_plan`, `send_response` (intercepted)
+1. **Re-run the Self-Review Checklist** on every modified file — correct, simple, elegant, well-written, maintainable, no dead code, principle-compliant.
+2. **Scan for refactoring opportunities** using the list in the Refactoring section. Apply any that genuinely improve the touched code; defer the rest.
+3. **Write tests** for every new behavior introduced by the commit (and for any untested behavior uncovered while working). Tests live in `tests/` mirroring the package layout.
+4. **Run the full test suite** — all tests must pass before committing. Fix failures; never commit with broken tests.
+
+No commit is exempt, regardless of size.
+
+## Provider & Run
+
+`API_PROVIDER` in `.env`: `anthropic` (default, needs `ANTHROPIC_API_KEY`) or `bedrock` (AWS creds + ARN inference-profile model IDs).
+
+```bash
+python -m python_agent
+```
+
+Launches the Textual TUI. Requires a real TTY (fails on piped stdin).
