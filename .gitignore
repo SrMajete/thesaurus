@@ -16,6 +16,7 @@ build/
 .eggs/
 
 # Tools & IDE
+.claude/
 .python-version
 .mypy_cache/
 .pytest_cache/

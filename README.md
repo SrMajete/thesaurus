@@ -27,7 +27,7 @@ python -m python_agent
 - Queues user prompts typed during a running turn — executed in submission order.
 - Supports direct Anthropic API and AWS Bedrock.
 
-Built-in tools: `read_file`, `write_file`, `edit_file`, `glob_files`, `grep_files`, `run_bash`, `run_python`, plus the intercepted `make_plan` / `send_response` that drive the agent loop.
+Built-in tools: `read_file`, `write_file`, `edit_file`, `glob_files`, `grep_files`, `run_bash`, `run_python`, `fetch_url`, plus the intercepted `make_plan` / `send_response` that drive the agent loop.
 
 ## Repo layout
 

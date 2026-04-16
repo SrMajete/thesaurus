@@ -1,9 +1,8 @@
 """Edit file tool — surgical search-and-replace for existing files.
 
 Finds an exact match of ``old_text`` in the target file and replaces it
-with ``new_text``. The match must be unique — zero or multiple matches
-are rejected with a clear error so the model can add context to
-disambiguate.
+with ``new_text``. The match must be unique unless ``replace_all`` is set,
+in which case every occurrence is replaced in one pass.
 """
 
 from pathlib import Path
@@ -42,6 +41,12 @@ class EditFileTool:
                     "The replacement text. Use an empty string to delete old_text."
                 ),
             },
+            "replace_all": {
+                "type": "boolean",
+                "description": (
+                    "Replace all occurrences of old_text. Default false."
+                ),
+            },
         },
         "required": ["file_path", "old_text", "new_text"],
     }
@@ -52,7 +57,8 @@ class EditFileTool:
     _MAX_FILE_SIZE = 1_000_000_000  # 1 GB
 
     async def execute(
-        self, *, file_path: str, old_text: str, new_text: str
+        self, *, file_path: str, old_text: str, new_text: str,
+        replace_all: bool = False,
     ) -> str:
         if not old_text:
             return "Error: old_text must not be empty."
@@ -88,18 +94,17 @@ class EditFileTool:
         if count == 0:
             return "Error: old_text not found in file."
 
-        if count > 1:
+        if count > 1 and not replace_all:
             return (
                 f"Error: old_text found {count} times — must be unique. "
-                "Add surrounding context to disambiguate."
+                "Add surrounding context to disambiguate, or set replace_all."
             )
 
-        match_start = text.index(old_text)
-        start_line = text[:match_start].count("\n") + 1
-        new_text_lines = new_text.count("\n") + 1 if new_text else 0
-        end_line = start_line + new_text_lines - 1
-
-        new_content = text.replace(old_text, new_text, 1)
+        new_content = (
+            text.replace(old_text, new_text)
+            if replace_all
+            else text.replace(old_text, new_text, 1)
+        )
 
         try:
             path.write_text(new_content, encoding="utf-8")
@@ -108,6 +113,8 @@ class EditFileTool:
         except OSError as e:
             return f"Error: {e}"
 
-        if new_text:
-            return f"Applied edit to {file_path} (lines {start_line}-{end_line})"
-        return f"Applied edit to {file_path} (deleted from line {start_line})"
+        if replace_all and count > 1:
+            return f"Replaced {count} occurrences in {file_path}"
+        match_start = text.index(old_text)
+        start_line = text[:match_start].count("\n") + 1
+        return f"Applied edit to {file_path} (line {start_line})"

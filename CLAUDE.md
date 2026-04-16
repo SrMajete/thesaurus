@@ -86,7 +86,8 @@ Launches the Textual TUI. Requires a real TTY (fails on piped stdin).
 
 ## Built-in Tools
 
-- **File I/O:** `read_file`, `write_file`, `edit_file`
+- **File I/O:** `read_file`, `write_file`, `edit_file` (supports `replace_all` for bulk replacements)
 - **Search:** `glob_files`, `grep_files`
 - **Execution:** `run_bash`, `run_python`
+- **Web:** `fetch_url` (HTTP GET → markdown/text/HTML via `httpx` + `markdownify`)
 - **Agent control:** `make_plan`, `send_response` (intercepted)

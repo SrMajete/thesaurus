@@ -5,3 +5,5 @@ ripgrep>=15.0.0
 rich==15.0.0
 textual==8.2.3
 pyfiglet==1.0.4
+httpx>=0.28.0
+markdownify>=0.14.1

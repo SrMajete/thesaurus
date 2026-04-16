@@ -5,6 +5,7 @@ To add a new tool: import it here and append an instance to the list.
 
 from .base import Tool
 from .edit_file import EditFileTool
+from .fetch_url import FetchUrlTool
 from .glob_files import GlobFilesTool
 from .grep_files import GrepFilesTool
 from .make_plan import MakePlanTool
@@ -26,5 +27,6 @@ def get_default_tools() -> list[Tool]:
         EditFileTool(),
         GlobFilesTool(),
         GrepFilesTool(),
+        FetchUrlTool(),
         SendResponseTool(),
     ]
