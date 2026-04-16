@@ -115,6 +115,17 @@ shared helpers: client.py (API client factory) · tool_summaries.py (SUMMARIZERS
 4. Add a summarizer entry in `tool_summaries.py` `SUMMARIZERS` (required — without it, the fallback truncates params to 100 chars).
 5. Optionally update WORKFLOW rule 2 in `prompts.py` if the tool replaces a `run_bash` pattern.
 
+## Porting to a new domain
+
+The core agent infrastructure (`agent.py`, `processor.py`, `api_client.py`, `context.py`, the `Tool` Protocol, all shared helpers) is domain-agnostic and reusable as-is. Converting to a non-coding agent means editing these coupling points:
+
+- `prompts.py` — `IDENTITY`'s "software engineering tasks" phrase, `WORKFLOW`'s tool-preference list, `DOING_TASKS`'s coding clause, `CODE_QUALITY` and `BUG_HUNTING` sections (both entirely coding-specific), `EXPERIMENTATION`'s code examples
+- `tools/registry.py` — the coding-specific tool list; the two always-required infrastructure tools are `make_plan` and `send_response`
+- `tool_summaries.py` — remove/add entries for removed/added tools
+- `environment_info()` — git subprocess calls; replace with domain-relevant context
+
+Tools that are universally useful and keep: `read_file`, `write_file`, `edit_file`, `glob_files`, `grep_files`, `run_bash`, `run_python`, `fetch_url`, `web_search`.
+
 ## Refactoring
 
 When assessing refactoring opportunities, scan for: DRY violations, SRP violations, dead code, inconsistent patterns, functions exceeding ~40 lines, and violations of any Good Coding Principle. Only refactor what genuinely reduces duplication or fixes a real problem — never for style preferences or premature optimization.
