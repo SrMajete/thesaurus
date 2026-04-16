@@ -19,7 +19,8 @@ class EditFileTool:
         "Apply a search-and-replace edit to an existing file. Provide the exact "
         "text to find (old_text) and its replacement (new_text). old_text must "
         "match exactly once in the file — include enough surrounding context to "
-        "make it unique. Use write_file for creating new files."
+        "make it unique. Always read_file first to work from a fresh view. "
+        "Use write_file for creating new files."
     )
     input_schema: dict[str, Any] = {
         "type": "object",

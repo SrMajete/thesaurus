@@ -14,7 +14,8 @@ class RunBashTool:
         "Run a shell command and return its output. Use this for system commands, "
         "running scripts, installing packages, git operations, and any task that "
         "requires shell access. Prefer the dedicated read_file/write_file tools "
-        "for file operations instead of cat/echo."
+        "for file operations instead of cat/echo. "
+        "For computations or data processing, prefer run_python."
     )
     input_schema: dict[str, Any] = {
         "type": "object",
