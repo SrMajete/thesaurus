@@ -27,6 +27,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from .api_client import ToolCall, stream_response
+from .context import prune_tool_results
 from .messages import assistant_message, tool_result, user_message
 from .prompts import build_system_prompt
 from .tools.base import Tool, ToolName, find_tool
@@ -97,6 +98,7 @@ async def run_loop(agent: "Agent") -> None:
             + response.cache_read_input_tokens
         )
         agent.total_output_tokens += response.output_tokens
+        agent.last_context_tokens = response.context_tokens
 
         agent.messages.append(assistant_message(response.content))
 
@@ -111,50 +113,17 @@ async def run_loop(agent: "Agent") -> None:
         # next call 400s on the orphaned tool_use blocks.
         results_appended = False
         try:
-            # Extract all make_plan calls — the prompt forbids more than one
-            # per turn, but handle the misbehaving case so every tool_use gets
-            # a matching tool_result and the next API call isn't rejected.
             plan_calls = [c for c in response.tool_calls if c.name == ToolName.MAKE_PLAN]
-            if plan_calls:
-                # Use the first plan's content for agent.plan (predictable if the
-                # model misbehaves and emits multiple). The streaming path in
-                # api_client.py already rendered each plan's content live.
-                first = plan_calls[0]
-                agent.plan = _format_plan(
-                    first.input.get("thinking", ""),
-                    first.input.get("roadmap", ""),
-                )
-                if agent.plan:
-                    logger.info("Plan: %s", agent.plan)
+            _handle_plan(agent, plan_calls)
 
-            # Check for send_response tool calls — the "I'm done" signal
             respond_calls = [c for c in response.tool_calls if c.name == ToolName.SEND_RESPONSE]
             if respond_calls:
-                # The send_response header and body were streamed live during
-                # the API call. All that's left is to emit tool_results so the
-                # message history stays valid — every tool_use block needs its
-                # match.
-                respond_ids = {c.id for c in respond_calls}
-                plan_ids = {c.id for c in plan_calls}
-                all_results = []
-                for call in response.tool_calls:
-                    if call.id in respond_ids:
-                        response_text = call.input.get("response", "")
-                        all_results.append(tool_result(call.id, response_text))
-                    elif call.id in plan_ids:
-                        all_results.append(tool_result(call.id, "Plan acknowledged."))
-                    else:
-                        # Model violated the prompt and emitted other tools
-                        # alongside send_response. Fire both callbacks so the
-                        # user sees the dropped tool. on_tool_start is
-                        # required first: the TUI asserts every tool_result
-                        # has a matching registered tool_start.
-                        skipped = "Skipped — send_response ended the turn."
-                        agent.callbacks.on_tool_start(call.id, call.name, call.input)
-                        agent.callbacks.on_tool_result(
-                            call.id, call.name, call.input, skipped, True
-                        )
-                        all_results.append(tool_result(call.id, skipped))
+                all_results = _build_send_response_results(
+                    agent,
+                    response.tool_calls,
+                    plan_ids={c.id for c in plan_calls},
+                    respond_ids={c.id for c in respond_calls},
+                )
                 agent.messages.append(user_message(all_results))
                 results_appended = True
                 return
@@ -167,6 +136,16 @@ async def run_loop(agent: "Agent") -> None:
             tool_results = await _execute_tool_calls(agent, remaining_calls) if remaining_calls else []
             agent.messages.append(user_message(plan_results + tool_results))
             results_appended = True
+
+            # Prune old tool results if context is approaching the limit.
+            threshold = agent.max_context_tokens * agent.prune_context_threshold
+            if agent.last_context_tokens >= threshold:
+                try:
+                    saved = prune_tool_results(agent.messages)
+                    if saved:
+                        logger.info("Pruned tool results: ~%d tokens saved", saved)
+                except Exception:
+                    logger.exception("Pruning failed")
         finally:
             if not results_appended:
                 # Preserve the tool_use ↔ tool_result invariant so the next
@@ -209,6 +188,48 @@ def _format_plan(thinking: str, roadmap: str) -> str:
     if roadmap:
         parts.append(f"## Roadmap\n\n{roadmap.strip()}")
     return "\n\n".join(parts)
+
+
+def _handle_plan(agent: "Agent", plan_calls: list[ToolCall]) -> None:
+    """Persist the plan from the first make_plan call."""
+    if not plan_calls:
+        return
+    first = plan_calls[0]
+    agent.plan = _format_plan(
+        first.input.get("thinking", ""),
+        first.input.get("roadmap", ""),
+    )
+    if agent.plan:
+        logger.info("Plan: %s", agent.plan)
+
+
+def _build_send_response_results(
+    agent: "Agent",
+    tool_calls: list[ToolCall],
+    plan_ids: set[str],
+    respond_ids: set[str],
+) -> list[dict[str, Any]]:
+    """Build tool_result blocks for the send_response exit path.
+
+    Every tool_use needs a matching tool_result. Respond and plan calls
+    get their content; anything else the model emitted alongside
+    send_response is skipped with a callback notification.
+    """
+    results: list[dict[str, Any]] = []
+    for call in tool_calls:
+        if call.id in respond_ids:
+            response_text = call.input.get("response", "")
+            results.append(tool_result(call.id, response_text))
+        elif call.id in plan_ids:
+            results.append(tool_result(call.id, "Plan acknowledged."))
+        else:
+            skipped = "Skipped — send_response ended the turn."
+            agent.callbacks.on_tool_start(call.id, call.name, call.input)
+            agent.callbacks.on_tool_result(
+                call.id, call.name, call.input, skipped, True
+            )
+            results.append(tool_result(call.id, skipped))
+    return results
 
 
 def _strip_reason(params: dict[str, Any]) -> dict[str, Any]:

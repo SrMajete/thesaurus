@@ -2,8 +2,9 @@
 
 from typing import Any
 
-from .base import ToolName
+from ._helpers import clamp_timeout
 from ._subprocess import run_subprocess
+from .base import ToolName
 
 
 class RunBashTool:
@@ -37,5 +38,5 @@ class RunBashTool:
 
     async def execute(self, *, command: str, timeout: int = 120) -> str:
         return await run_subprocess(
-            command, timeout=max(1, min(timeout, 600)), shell=True
+            command, timeout=clamp_timeout(timeout), shell=True
         )

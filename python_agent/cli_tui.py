@@ -38,7 +38,7 @@ from textual.widgets import Static, TextArea
 
 from . import logging_config
 from .agent import Agent, AgentCallbacks
-from .client import make_client
+from .client import fetch_max_context_tokens, make_client
 from .config import Settings
 from .tool_summaries import INTERCEPTED_TOOLS, summarize_params, tool_header_label
 from .tools import get_default_tools
@@ -98,8 +98,8 @@ Screen {
    edge of scrollback content. Colors come from the Rich ``Text``
    inside, so no CSS ``color:`` property here. */
 #token-counter {
-    height: 1;
-    margin-top: 1;
+    height: 2;
+    margin-top: 2;
     padding: 0 1;
     text-align: left;
     background: black 0%;
@@ -232,64 +232,62 @@ def _render_banner() -> str:
 _BANNER = _render_banner()
 
 
+_CONTEXT_PCT_COLORS: list[tuple[int, str]] = [
+    (90, "red"),
+    (75, "#ff8700"),
+    (60, "yellow"),
+    (40, "#5fd7d7"),
+    (20, "green"),
+    (0, "white"),
+]
+
+
+def _context_pct_color(pct: int) -> str:
+    """Return the color for a context usage percentage."""
+    for threshold, color in _CONTEXT_PCT_COLORS:
+        if pct >= threshold:
+            return color
+    return "white"
+
+
+def _scale(peak: int) -> tuple[str, int, int]:
+    """Pick unit label, divisor, and decimal places for token display."""
+    if peak < 10_000:
+        return "", 1, 0
+    if peak < 1_000_000:
+        return "K", 1_000, 1
+    return "M", 1_000_000, 1
+
+
 def _format_token_line(
     in_tokens: int,
     cached_tokens: int,
     out_tokens: int,
+    label: str = "",
+    context_tokens: int | None = None,
+    max_context_tokens: int | None = None,
 ) -> Text:
-    """Build the colored ``tokens[(unit)] → input=X (Y cached), output=Z`` line.
+    """Build a colored token info line.
 
-    Used by both the cumulative counter docked above the prompt and the
-    per-turn separator rule mounted into scrollback — one source of truth
-    so the two displays can't drift out of sync, and identical styling
-    in both places.
-
-    Auto-scales the unit from the largest of the three values so all
-    numbers share the same scale and read comparably:
-
-    - under 10,000 → raw integer with comma separators (precise)
-    - 10,000 ≤ x < 1,000,000 → ``(K)`` with two decimals
-    - 1,000,000 and up → ``(M)`` with three decimals
-
-    Decimals are chosen so small values stay distinguishable after
-    scaling: at K with 2 decimals, 150 → ``0.15`` and 240 → ``0.24``
-    instead of collapsing to ``0.2``. At M with 3 decimals the same
-    resolution applies one order of magnitude up.
-
-    ``cached_tokens`` is the subset of ``in_tokens`` that came from the
-    prompt cache (cache writes + cache reads). Always rendered in
-    parentheses after the input total so the headline number stays the
-    full input count.
-
-    Colors follow the UI's user/agent palette; nothing bold, so the
-    line reads flat and calm:
-
-    - ``tokens[(unit)] →`` label and ``cached`` annotation in bright
-      white so the structural words stand out against the rule.
-    - ``input=`` label + number in cyan (``#5fd7d7`` / ``#5fffff``),
-      aligned with ``.user``'s cyan identity.
-    - ``output=`` label + number in green (``#87d787`` / ``#00ff5f``),
-      aligned with ``.agent``.
+    ``label`` (e.g. ``"delta"`` or ``"cumulative"``) is inserted after
+    ``tokens`` in the prefix. Context info is appended when both
+    context params are provided.
     """
-    peak = max(in_tokens, cached_tokens, out_tokens)
-    if peak < 10_000:
-        unit, divisor, decimals = "", 1, 0
-    elif peak < 1_000_000:
-        unit, divisor, decimals = "(K)", 1_000, 2
-    else:
-        unit, divisor, decimals = "(M)", 1_000_000, 3
+    suffix, divisor, decimals = _scale(max(in_tokens, cached_tokens, out_tokens))
 
     def fmt(n: int) -> str:
         return f"{n:,}" if divisor == 1 else f"{n / divisor:.{decimals}f}"
 
-    # Every fragment carries an explicit span style (no reliance on the
-    # Text base style). ``rich.rule.Rule`` calls ``stylize(rule_style)``
-    # on the assembled line, which overlays the rule's gray onto any
-    # content *without* an explicit span — giving the separator a
-    # subtly different look than the counter. Explicit spans
-    # everywhere keep the two displays identical.
+    # Build prefix: tokens(label, K) → or tokens(label) → or tokens(K) →
+    if label and suffix:
+        prefix = f"tokens({label}, {suffix}) → "
+    elif label:
+        prefix = f"tokens({label}) → "
+    else:
+        prefix = f"tokens({suffix}) → " if suffix else "tokens → "
+
     t = Text()
-    t.append(f"tokens{unit} → ", style="bright_white")
+    t.append(prefix, style="bright_white")
     t.append("input=", style="#5fd7d7")
     t.append(fmt(in_tokens), style="#5fffff")
     t.append(" (", style="white")
@@ -297,6 +295,22 @@ def _format_token_line(
     t.append(" cached), ", style="white")
     t.append("output=", style="#87d787")
     t.append(fmt(out_tokens), style="#00ff5f")
+
+    if context_tokens is not None and max_context_tokens and max_context_tokens > 0:
+        # Context ratio uses shared scale from the larger value.
+        ctx_suffix, ctx_div, ctx_dec = _scale(max_context_tokens)
+
+        def ctx_fmt(n: int) -> str:
+            return f"{n:,}" if ctx_div == 1 else f"{n / ctx_div:.{ctx_dec}f}"
+
+        pct = min(100.0, context_tokens / max_context_tokens * 100)
+        t.append(", ", style="white")
+        t.append("context=", style="bright_white")
+        t.append(f"{ctx_fmt(context_tokens)}{ctx_suffix}", style="white")
+        t.append("/", style="white")
+        t.append(f"{ctx_fmt(max_context_tokens)}{ctx_suffix}", style="white")
+        t.append(f" ({pct:.1f}%)", style=_context_pct_color(int(pct)))
+
     return t
 
 
@@ -603,9 +617,28 @@ class TokenCounter(Static):
     """
 
     def update_totals(
-        self, in_tokens: int, cached_tokens: int, out_tokens: int
+        self,
+        delta_in: int, delta_cached: int, delta_out: int,
+        cum_in: int, cum_cached: int, cum_out: int,
+        context_tokens: int | None = None,
+        max_context_tokens: int | None = None,
     ) -> None:
-        self.update(_format_token_line(in_tokens, cached_tokens, out_tokens))
+        cum_line = _format_token_line(
+            cum_in, cum_cached, cum_out, label="cumulative",
+            context_tokens=context_tokens,
+            max_context_tokens=max_context_tokens,
+        )
+        if delta_in or delta_cached or delta_out:
+            delta_line = _format_token_line(
+                delta_in, delta_cached, delta_out, label="delta",
+            )
+            combined = Text()
+            combined.append_text(delta_line)
+            combined.append("\n")
+            combined.append_text(cum_line)
+            self.update(combined)
+        else:
+            self.update(cum_line)
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -724,6 +757,8 @@ class AgentApp(App[None]):
                 ask_permission=self.output.ask_permission,
             ),
             max_turns=settings.max_turns,
+            max_context_tokens=fetch_max_context_tokens(settings),
+            prune_context_threshold=settings.prune_context_threshold,
         )
         self._active_stream: MarkdownStream | None = None
         self._active_stream_kind: str | None = None
@@ -747,6 +782,7 @@ class AgentApp(App[None]):
         # detects a pending future and resolves it instead of queueing
         # the input as a new user prompt.
         self._pending_permission: asyncio.Future[bool] | None = None
+        self._turn_count: int = 0
 
     def compose(self) -> ComposeResult:
         """Build the static layout: scrollable message pane + token counter + input box."""
@@ -763,7 +799,7 @@ class AgentApp(App[None]):
         self._mount_hint("help:      /help for commands · Enter send · Shift+Enter newline · Ctrl+C quit")
         # Initialize the cumulative counter so it reads a styled zero
         # line from startup instead of being blank until the first turn.
-        self.query_one(TokenCounter).update_totals(0, 0, 0)
+        self.query_one(TokenCounter).update_totals(0, 0, 0, 0, 0, 0)
         self.query_one("#prompt", PromptArea).focus()
         # Start the single long-running consumer that drains the prompt
         # queue. Runs for the whole app lifetime.
@@ -1010,27 +1046,25 @@ class AgentApp(App[None]):
             turn_in = self.agent.total_input_tokens - before_in
             turn_cached = self.agent.total_cached_input_tokens - before_cached
             turn_out = self.agent.total_output_tokens - before_out
-            # Double line-jump above the separator so each turn has clear
-            # visual breathing room before its summary rule.
+            self._turn_count += 1
             self._mount_blank()
             self._mount_blank()
             self._mount_to_messages(Static(
                 Rule(
-                    title=_format_token_line(turn_in, turn_cached, turn_out),
+                    title=f"turn {self._turn_count}",
                     align="left",
                     style="color(245)",
                     characters="-",
                 ),
                 classes="turn-separator",
             ))
-            # Spacing between the separator and the next user message
-            # is owned by ``.user``'s top padding (2 rows) — keeping
-            # it in one place avoids stacking blanks here with CSS
-            # padding above the next ``UserMessage``.
             self.query_one(TokenCounter).update_totals(
+                turn_in, turn_cached, turn_out,
                 self.agent.total_input_tokens,
                 self.agent.total_cached_input_tokens,
                 self.agent.total_output_tokens,
+                self.agent.last_context_tokens,
+                self.agent.max_context_tokens,
             )
 
     async def _handle_slash(self, cmd: str) -> None:
@@ -1058,6 +1092,8 @@ class AgentApp(App[None]):
         self.query_one("#messages", VerticalScroll).remove_children()
         self._close_active_stream_or_spinner()
         self._pending.clear()
+        self._turn_count = 0
+        self.query_one(TokenCounter).update_totals(0, 0, 0, 0, 0, 0)
 
 
 # ───────────────────────────────────────────────────────────────────────────

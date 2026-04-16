@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     model: str = "claude-sonnet-4-20250514"
     max_turns: int = 10
+    prune_context_threshold: float = 0.8
     log_dir: Path = Path(__file__).resolve().parent.parent / "logs"
 
     # AWS Bedrock settings (only used when provider=bedrock)

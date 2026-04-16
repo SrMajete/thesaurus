@@ -84,6 +84,12 @@ Launches the Textual TUI. Requires a real TTY (fails on piped stdin).
 4. Add a summarizer entry in `tool_summaries.py` `SUMMARIZERS`.
 5. Update WORKFLOW rule 2 in `prompts.py` if the tool replaces a `run_bash` pattern.
 
+## Refactoring
+
+When assessing refactoring opportunities, analyze the codebase for: DRY violations (same logic in multiple places), SRP violations (modules doing more than one thing), dead code, inconsistent patterns, functions exceeding ~40 lines, and compliance with the Good Coding Principles listed below. Only refactor what genuinely reduces duplication or fixes a real problem — do not refactor for style preferences or premature optimization.
+
+Shared tool utilities live in `tools/_helpers.py`: `truncate()`, `clamp_timeout()`, `validate_file_path()`, `is_binary()`. Use these instead of reimplementing the same logic in individual tools.
+
 ## Built-in Tools
 
 - **File I/O:** `read_file`, `write_file`, `edit_file` (supports `replace_all` for bulk replacements)

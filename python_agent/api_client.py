@@ -100,6 +100,20 @@ class AgentResponse:
     cache_creation_input_tokens: int
     cache_read_input_tokens: int
 
+    @property
+    def context_tokens(self) -> int:
+        """Total context size: input + cache + output.
+
+        Output is included because the assistant message becomes input
+        on the next turn.
+        """
+        return (
+            self.input_tokens
+            + self.cache_creation_input_tokens
+            + self.cache_read_input_tokens
+            + self.output_tokens
+        )
+
 
 # ───────────────────────────────────────────────────────────────────────────
 # Streaming API call

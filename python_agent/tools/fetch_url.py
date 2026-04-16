@@ -10,10 +10,10 @@ import httpx
 from markdownify import markdownify
 from typing import Any
 
+from ._helpers import truncate
 from .base import ToolName
 
 _MAX_RESPONSE_BYTES = 5 * 1024 * 1024  # 5 MB
-_MAX_OUTPUT_CHARS = 50_000
 _DEFAULT_TIMEOUT = 30
 _MAX_TIMEOUT = 120
 
@@ -65,11 +65,6 @@ def _html_to_text(html: str) -> str:
     return markdownify(_strip_noisy_elements(html), convert=[""]).strip()
 
 
-def _truncate(text: str) -> str:
-    """Truncate to the output character limit."""
-    if len(text) <= _MAX_OUTPUT_CHARS:
-        return text
-    return text[:_MAX_OUTPUT_CHARS] + f"\n\n... truncated ({len(text)} chars total)"
 
 
 class FetchUrlTool:
@@ -154,5 +149,5 @@ class FetchUrlTool:
         else:
             body = _html_to_markdown(text)
 
-        body = _truncate(body)
+        body = truncate(body)
         return f"Fetched {url} ({content_type}, {byte_count} bytes)\n\n{body}"

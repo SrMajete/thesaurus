@@ -6,7 +6,7 @@ one place so ``RunBashTool`` and ``RunPythonTool`` stay thin wrappers.
 
 import asyncio
 
-_MAX_OUTPUT_CHARS = 50_000
+from ._helpers import truncate
 
 
 async def run_subprocess(*args: str, timeout: int, shell: bool = False) -> str:
@@ -61,10 +61,7 @@ def _format_output(stdout: bytes, stderr: bytes, returncode: int) -> str:
     if not output:
         output = "(no output)"
 
-    if len(output) > _MAX_OUTPUT_CHARS:
-        marker = f"\n\n... truncated ({len(output)} chars total) ...\n\n"
-        half = (_MAX_OUTPUT_CHARS - len(marker)) // 2
-        output = output[:half] + marker + output[-half:]
+    output = truncate(output)
 
     if returncode != 0:
         output += f"\n(exit code: {returncode})"

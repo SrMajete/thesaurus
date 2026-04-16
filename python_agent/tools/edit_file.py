@@ -8,6 +8,7 @@ in which case every occurrence is replaced in one pass.
 from pathlib import Path
 from typing import Any
 
+from ._helpers import is_binary, validate_file_path
 from .base import ToolName
 
 
@@ -69,11 +70,9 @@ class EditFileTool:
 
         path = Path(file_path)
 
-        if not path.exists():
-            return f"Error: file not found: {file_path}"
-
-        if not path.is_file():
-            return f"Error: not a file: {file_path}"
+        err = validate_file_path(path)
+        if err:
+            return err
 
         if path.stat().st_size > self._MAX_FILE_SIZE:
             return f"Error: file exceeds 1 GB limit: {file_path}"
@@ -83,7 +82,7 @@ class EditFileTool:
         except PermissionError:
             return f"Error: permission denied: {file_path}"
 
-        if b"\x00" in content[:8192]:
+        if is_binary(content):
             return f"Error: {file_path} appears to be a binary file."
 
         try:

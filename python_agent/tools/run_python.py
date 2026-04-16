@@ -8,8 +8,9 @@ shell escaping issues.
 import sys
 from typing import Any
 
-from .base import ToolName
+from ._helpers import clamp_timeout
 from ._subprocess import run_subprocess
+from .base import ToolName
 
 
 class RunPythonTool:
@@ -48,5 +49,5 @@ class RunPythonTool:
 
     async def execute(self, *, code: str, timeout: int = 120) -> str:
         return await run_subprocess(
-            sys.executable, "-c", code, timeout=max(1, min(timeout, 600))
+            sys.executable, "-c", code, timeout=clamp_timeout(timeout)
         )

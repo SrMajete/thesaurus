@@ -85,6 +85,8 @@ class Agent:
         tools: list[Tool],
         callbacks: AgentCallbacks,
         max_turns: int = 10,
+        max_context_tokens: int = 200_000,
+        prune_context_threshold: float = 0.8,
     ) -> None:
         for tool in tools:
             if not _TOOL_NAME_PATTERN.match(tool.name):
@@ -98,6 +100,8 @@ class Agent:
         self.tools = tools
         self.callbacks = callbacks
         self.max_turns = max_turns
+        self.max_context_tokens = max_context_tokens
+        self.prune_context_threshold = prune_context_threshold
         self.messages: list[dict[str, Any]] = []
         self.api_tools = tools_to_api_format(tools)
         # Cache the environment section once per session. It's injected into
@@ -122,6 +126,11 @@ class Agent:
         self.total_input_tokens: int = 0
         self.total_cached_input_tokens: int = 0
         self.total_output_tokens: int = 0
+        # Context size (input + cache + output tokens) from the most
+        # recent API response. Set by the processor every turn. Used by
+        # the TUI for the context percentage display and by the processor
+        # for the pruning threshold check.
+        self.last_context_tokens: int = 0
 
     async def process_input(self, user_input: str) -> None:
         """Process a user message and run the agentic loop.
