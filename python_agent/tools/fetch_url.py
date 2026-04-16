@@ -65,8 +65,6 @@ def _html_to_text(html: str) -> str:
     return markdownify(_strip_noisy_elements(html), convert=[""]).strip()
 
 
-
-
 class FetchUrlTool:
     """Fetch a URL and return its content as markdown, text, or raw HTML."""
 

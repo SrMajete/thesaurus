@@ -81,8 +81,8 @@ Launches the Textual TUI. Requires a real TTY (fails on piped stdin).
 1. Create `python_agent/tools/your_tool.py` with a class satisfying the `Tool` Protocol.
 2. Add `YOUR_TOOL = "your_tool"` to `ToolName` in `tools/base.py`.
 3. Register in `tools/registry.py`.
-4. Add a summarizer entry in `tool_summaries.py` `SUMMARIZERS`.
-5. Update WORKFLOW rule 2 in `prompts.py` if the tool replaces a `run_bash` pattern.
+4. Add a summarizer entry in `tool_summaries.py` `SUMMARIZERS` (required — without it, the fallback truncates params to 100 chars).
+5. Optionally update WORKFLOW rule 2 in `prompts.py` if the tool replaces a `run_bash` pattern.
 
 ## Refactoring
 
