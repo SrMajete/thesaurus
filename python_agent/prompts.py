@@ -21,9 +21,34 @@ import os
 import platform
 import subprocess
 from datetime import datetime, timezone
+from enum import StrEnum
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+class PromptBlock(StrEnum):
+    """Named handles for the static system prompt sections.
+
+    Each member maps to a module-level constant below. The enum is used
+    by ``AgentType`` to select which sections a sub-agent receives, and
+    by ``build_system_prompt`` to assemble them. Definition order matches
+    the section hierarchy (identity first, output style last) — iterating
+    the enum produces the canonical section order.
+    """
+
+    IDENTITY = "identity"
+    SECURITY = "security"
+    SAFETY = "safety"
+    SYSTEM_BEHAVIOR = "system_behavior"
+    WORKFLOW = "workflow"
+    PLANNING = "planning"
+    DOING_TASKS = "doing_tasks"
+    CODE_QUALITY = "code_quality"
+    BUG_HUNTING = "bug_hunting"
+    EXPERIMENTATION = "experimentation"
+    TONE_AND_STYLE = "tone_and_style"
+    OUTPUT_EFFICIENCY = "output_efficiency"
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -32,7 +57,10 @@ logger = logging.getLogger(__name__)
 
 
 def build_system_prompt(
-    env_info: str, current_plan: str | None = None
+    env_info: str,
+    current_plan: str | None = None,
+    blocks: tuple[PromptBlock, ...] | None = None,
+    preamble: str | None = None,
 ) -> list[dict[str, Any]]:
     """Assemble the full system prompt as a list of text blocks with caching.
 
@@ -52,23 +80,31 @@ def build_system_prompt(
         The agent's current plan as markdown, or None. When present, it
         is appended as a separate uncached block so the model sees its
         own live roadmap every turn without busting the cache.
+    blocks:
+        Which prompt sections to include. ``None`` (default) includes
+        all sections — backward compatible with the original behavior.
+        When provided, only the listed blocks are assembled. IDENTITY
+        is always excluded from iteration since the ``preamble`` (or
+        the default IDENTITY text) is prepended separately.
+    preamble:
+        Custom identity text that replaces the generic IDENTITY section.
+        Used by sub-agents to receive a role-specific identity (e.g.
+        "You are a code reviewer…"). ``None`` uses the default IDENTITY.
     """
-    static_sections = [
-        IDENTITY,
-        SECURITY,
-        SAFETY,
-        SYSTEM_BEHAVIOR,
-        WORKFLOW,
-        PLANNING,
-        DOING_TASKS,
-        CODE_QUALITY,
-        BUG_HUNTING,
-        EXPERIMENTATION,
-        TONE_AND_STYLE,
-        OUTPUT_EFFICIENCY,
-        env_info,
-    ]
-    static_text = "\n\n".join(static_sections)
+    # Identity: custom preamble or default IDENTITY section.
+    identity = preamble if preamble is not None else PROMPT_BLOCKS[PromptBlock.IDENTITY]
+
+    # Remaining sections: selected blocks (or all), excluding IDENTITY.
+    selected = blocks if blocks is not None else tuple(
+        b for b in PromptBlock if b != PromptBlock.IDENTITY
+    )
+    sections = [identity]
+    sections.extend(
+        PROMPT_BLOCKS[b] for b in selected if b != PromptBlock.IDENTITY
+    )
+    sections.append(env_info)
+
+    static_text = "\n\n".join(sections)
 
     blocks: list[dict[str, Any]] = [
         {
@@ -169,6 +205,11 @@ WORKFLOW = """
 1. Every turn starts with make_plan and reaches the user only through send_response — and send_response itself must be preceded by make_plan in the same turn. No exceptions. Batch independent calls in one turn; chain dependent calls across turns. Solve the task in the fewest turns possible.
 2. Prefer dedicated tools over run_bash: read_file instead of cat/head/tail/sed, edit_file for modifying existing files, write_file for creating new ones, glob_files instead of find/ls, grep_files instead of grep/rg, run_python instead of "python -c". Reserve run_bash for shell-only operations.
 3. Before your first run_python or Python-tooling run_bash call, detect the project's Python environment. Check for .venv/bin/python, pyproject.toml (poetry/uv/hatch), Pipfile, environment.yml, Dockerfile/docker-compose.yml. Use the project interpreter (.venv/bin/python, poetry run python, uv run python, docker compose run --rm <service> python), not raw python — system Python in a managed project silently hits the wrong dependencies. Reuse the chosen command for the rest of the session.
+4. Use spawn_agent to delegate focused, read-only tasks to specialized sub-agents. Each sub-agent runs in a clean context with no prior history. Brief it like a smart colleague who just walked into the room: explain what you're trying to accomplish, what you've already learned, and give enough context that the agent can make judgment calls rather than just following narrow instructions.
+
+   Available agent types and their tools:
+   - code_reviewer: Reviews code quality, patterns, and architecture. Reports findings with file:line references and names which coding principle each violates. (Tools: read_file, glob_files, grep_files, run_bash)
+   - bug_hunter: Finds bugs through hypothesis-driven testing. Forms concrete breakage scenarios, writes and executes tests, decides from results not prior belief. (Tools: read_file, glob_files, grep_files, run_bash, run_python)
 """.strip()
 
 
@@ -349,6 +390,26 @@ Skip:
 3. Lengthy introductions or conclusions around short answers.
 4. This does not apply to code or tool calls — those should be as thorough as needed.
 """.strip()
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Block registry — maps PromptBlock enum to text constants
+# ───────────────────────────────────────────────────────────────────────────
+
+PROMPT_BLOCKS: dict[PromptBlock, str] = {
+    PromptBlock.IDENTITY: IDENTITY,
+    PromptBlock.SECURITY: SECURITY,
+    PromptBlock.SAFETY: SAFETY,
+    PromptBlock.SYSTEM_BEHAVIOR: SYSTEM_BEHAVIOR,
+    PromptBlock.WORKFLOW: WORKFLOW,
+    PromptBlock.PLANNING: PLANNING,
+    PromptBlock.DOING_TASKS: DOING_TASKS,
+    PromptBlock.CODE_QUALITY: CODE_QUALITY,
+    PromptBlock.BUG_HUNTING: BUG_HUNTING,
+    PromptBlock.EXPERIMENTATION: EXPERIMENTATION,
+    PromptBlock.TONE_AND_STYLE: TONE_AND_STYLE,
+    PromptBlock.OUTPUT_EFFICIENCY: OUTPUT_EFFICIENCY,
+}
 
 
 # ───────────────────────────────────────────────────────────────────────────

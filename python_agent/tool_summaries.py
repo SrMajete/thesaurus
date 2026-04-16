@@ -36,6 +36,7 @@ SUMMARIZERS: dict[ToolName, Callable[[dict[str, Any]], str]] = {
     # whatever streams next (thinking body, response body) is the real payload.
     ToolName.MAKE_PLAN: lambda *_: "",
     ToolName.SEND_RESPONSE: lambda *_: "",
+    ToolName.SPAWN_AGENT: lambda p: f"{p.get('agent_type', '')}: {p.get('description', '')}",
 }
 
 

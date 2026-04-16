@@ -42,6 +42,7 @@ class ToolName(StrEnum):
     RUN_PYTHON = "run_python"
     MAKE_PLAN = "make_plan"
     SEND_RESPONSE = "send_response"
+    SPAWN_AGENT = "spawn_agent"
 
 
 REASON_FIELD_DESCRIPTION = (

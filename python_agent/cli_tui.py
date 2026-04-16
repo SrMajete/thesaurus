@@ -41,7 +41,7 @@ from .agent import Agent, AgentCallbacks
 from .client import make_client
 from .config import Settings
 from .tool_summaries import INTERCEPTED_TOOLS, summarize_params, tool_header_label
-from .tools import get_default_tools
+from .tools import find_tool, get_all_tools
 from .tools.base import ToolName
 
 logger = logging.getLogger(__name__)
@@ -712,19 +712,27 @@ class AgentApp(App[None]):
         super().__init__()
         self.settings = settings
         self.output = TuiOutput(self)
+        client = make_client(settings)
+        callbacks = AgentCallbacks(
+            on_thinking=self.output.on_thinking,
+            on_text=self.output.on_text,
+            on_tool_start=self.output.on_tool_start,
+            on_tool_result=self.output.on_tool_result,
+            ask_permission=self.output.ask_permission,
+        )
+        tools = get_all_tools(client, settings.model, settings.max_turns, callbacks)
         self.agent = Agent(
-            client=make_client(settings),
+            client=client,
             model=settings.model,
-            tools=get_default_tools(),
-            callbacks=AgentCallbacks(
-                on_thinking=self.output.on_thinking,
-                on_text=self.output.on_text,
-                on_tool_start=self.output.on_tool_start,
-                on_tool_result=self.output.on_tool_result,
-                ask_permission=self.output.ask_permission,
-            ),
+            tools=tools,
+            callbacks=callbacks,
             max_turns=settings.max_turns,
         )
+        # Wire parent agent for token propagation (post-construction:
+        # SpawnAgentTool exists before Agent due to chicken-and-egg).
+        spawn = find_tool(ToolName.SPAWN_AGENT, self.agent.tools)
+        if spawn:
+            spawn.parent_agent = self.agent
         self._active_stream: MarkdownStream | None = None
         self._active_stream_kind: str | None = None
         # Pre-stream / pre-API "thinking…" spinner, used only between

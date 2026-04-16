@@ -8,11 +8,12 @@ submodules if needed but not re-exported here.
 """
 
 from .base import Tool, find_tool, tools_to_api_format
-from .registry import get_default_tools
+from .registry import get_all_tools, get_default_tools
 
 __all__ = [
     "Tool",
     "find_tool",
     "tools_to_api_format",
     "get_default_tools",
+    "get_all_tools",
 ]

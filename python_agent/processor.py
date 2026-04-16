@@ -69,7 +69,10 @@ async def run_loop(agent: "Agent") -> None:
         # env_info is cached on the agent — see Agent.__init__ — so we
         # don't spawn git subprocesses every turn.
         system = build_system_prompt(
-            env_info=agent.env_info, current_plan=agent.plan
+            env_info=agent.env_info,
+            current_plan=agent.plan,
+            blocks=agent.prompt_blocks,
+            preamble=agent.system_preamble,
         )
 
         response = await stream_response(

@@ -16,7 +16,7 @@ from anthropic import AsyncAnthropic, AsyncAnthropicBedrock
 
 from .processor import run_loop
 from .messages import user_message
-from .prompts import environment_info
+from .prompts import PromptBlock, environment_info
 from .tools.base import Tool, tools_to_api_format
 
 
@@ -85,6 +85,8 @@ class Agent:
         tools: list[Tool],
         callbacks: AgentCallbacks,
         max_turns: int = 10,
+        prompt_blocks: tuple[PromptBlock, ...] | None = None,
+        system_preamble: str | None = None,
     ) -> None:
         for tool in tools:
             if not _TOOL_NAME_PATTERN.match(tool.name):
@@ -98,6 +100,8 @@ class Agent:
         self.tools = tools
         self.callbacks = callbacks
         self.max_turns = max_turns
+        self.prompt_blocks = prompt_blocks
+        self.system_preamble = system_preamble
         self.messages: list[dict[str, Any]] = []
         self.api_tools = tools_to_api_format(tools)
         # Cache the environment section once per session. It's injected into
@@ -122,6 +126,17 @@ class Agent:
         self.total_input_tokens: int = 0
         self.total_cached_input_tokens: int = 0
         self.total_output_tokens: int = 0
+
+    def accumulate_tokens(
+        self,
+        input_tokens: int,
+        cached_input_tokens: int,
+        output_tokens: int,
+    ) -> None:
+        """Add external token usage (e.g. from sub-agents) to cumulative counters."""
+        self.total_input_tokens += input_tokens
+        self.total_cached_input_tokens += cached_input_tokens
+        self.total_output_tokens += output_tokens
 
     async def process_input(self, user_input: str) -> None:
         """Process a user message and run the agentic loop.
