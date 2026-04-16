@@ -1051,7 +1051,7 @@ class AgentApp(App[None]):
             self._mount_blank()
             self._mount_to_messages(Static(
                 Rule(
-                    title=f"turn {self._turn_count}",
+                    title=f"interaction {self._turn_count}",
                     align="left",
                     style="color(245)",
                     characters="-",
