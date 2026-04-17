@@ -1,10 +1,10 @@
 [run]
 branch = True
-source = python_agent
+source = thesaurus
 omit =
-    python_agent/__main__.py
-    python_agent/cli_tui.py
-    python_agent/logging_config.py
+    thesaurus/__main__.py
+    thesaurus/adapters/tui.py
+    thesaurus/adapters/logging.py
 
 [report]
 exclude_lines =
