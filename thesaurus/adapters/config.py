@@ -11,7 +11,7 @@ from typing import Literal
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-_ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+_ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
 
 
 class Settings(BaseSettings):
@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     model: str = "claude-sonnet-4-20250514"
     max_turns: int = 10
     prune_context_threshold: float = 0.8
-    log_dir: Path = Path(__file__).resolve().parent.parent / "logs"
+    log_dir: Path = Path(__file__).resolve().parent.parent.parent / "logs"
 
     # Confluence (optional — search tool only registers when all three are set)
     confluence_url: str | None = None
