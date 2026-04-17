@@ -121,7 +121,7 @@ core/:     agent.py · processor.py · messages.py · context.py · prompts.py �
 1. Create `thesaurus/tools/your_tool.py` with a class satisfying the `Tool` Protocol.
 2. Add `YOUR_TOOL = "your_tool"` to `ToolName` in `tools/base.py`.
 3. Register in `tools/registry.py`.
-4. Add a summarizer entry in `tool_summaries.py` `SUMMARIZERS` (required — without it, the fallback truncates params to 100 chars).
+4. Add a summarizer entry in `tools/summaries.py` `SUMMARIZERS` (required — without it, the fallback truncates params to 100 chars).
 5. Optionally update WORKFLOW rule 2 in `prompts.py` if the tool replaces a `run_bash` pattern.
 
 ## Porting to a new domain
@@ -130,7 +130,7 @@ The `core/` package (`agent.py`, `processor.py`, `ports.py`, `context.py`, `mess
 
 - `core/prompts.py` — `IDENTITY`'s "software engineering tasks" phrase, `WORKFLOW`'s tool-preference list, `DOING_TASKS`'s coding clause, `CODE_QUALITY` and `BUG_HUNTING` sections (both entirely coding-specific), `EXPERIMENTATION`'s code examples
 - `tools/registry.py` — the coding-specific tool list; the two always-required infrastructure tools are `make_plan` and `send_response`
-- `tool_summaries.py` — remove/add entries for removed/added tools
+- `tools/summaries.py` — remove/add entries for removed/added tools
 - `adapters/environment.py` — git subprocess calls; replace with domain-relevant context
 
 Tools that are universally useful and keep: `read_file`, `write_file`, `edit_file`, `glob_files`, `grep_files`, `run_bash`, `run_python`, `fetch_url`, `web_search`.

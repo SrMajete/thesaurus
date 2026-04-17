@@ -17,8 +17,8 @@ strings at runtime) — the link to the tool registry is type-checkable.
 
 from typing import Any, Callable
 
-from .tools import get_default_tools
-from .tools.base import ToolName
+from . import get_default_tools
+from .base import ToolName
 
 
 SUMMARIZERS: dict[ToolName, Callable[[dict[str, Any]], str]] = {

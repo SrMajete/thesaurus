@@ -1,6 +1,6 @@
 """Tests for tool summary helpers and intercepted-tool set."""
 
-from thesaurus.tool_summaries import (
+from thesaurus.tools.summaries import (
     INTERCEPTED_TOOLS,
     SUMMARIZERS,
     summarize_params,

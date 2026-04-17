@@ -47,8 +47,8 @@ thesaurus/
 │   ├── config.py          pydantic-settings loader
 │   ├── logging.py         logging setup
 │   └── tui.py             Textual full-screen TUI
-├── tools/                 one class per tool (Tool Protocol)
-└── tool_summaries.py      per-tool display metadata
+└── tools/                 one class per tool (Tool Protocol)
+    └── summaries.py       per-tool display metadata
 ```
 
 ## More

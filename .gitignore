@@ -39,5 +39,7 @@ original_code
 
 # Open Code
 opencode
+
+# Testing
 htmlcov/
 .coverage

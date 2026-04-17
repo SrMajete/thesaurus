@@ -40,7 +40,7 @@ from thesaurus.adapters.client_factory import fetch_max_context_tokens, make_llm
 from thesaurus.adapters.config import Settings
 from thesaurus.adapters.environment import environment_info
 from thesaurus.core.agent import Agent, AgentCallbacks
-from thesaurus.tool_summaries import INTERCEPTED_TOOLS, summarize_params, tool_header_label
+from thesaurus.tools.summaries import INTERCEPTED_TOOLS, summarize_params, tool_header_label
 from thesaurus.tools import get_default_tools
 from thesaurus.tools.base import ToolName
 
@@ -367,7 +367,7 @@ def _detail_renderable(name: str, params: dict[str, Any]) -> RenderableType:
     - any other tool   → the one-line summary as a plain "text" block
 
     ``make_plan`` / ``send_response`` return empty summaries on purpose
-    (see ``tool_summaries.py``) so we emit nothing for those — their
+    (see ``tools/summaries.py``) so we emit nothing for those — their
     payload is the stream that follows the header, not a static line.
     """
     match name:
