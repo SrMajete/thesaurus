@@ -636,9 +636,9 @@ class TokenCounter(Static):
             ctx_raw = f"context({ctx_suffix})" if ctx_suffix else "context"
             t.append("\n- ")
             t.append(f"{ctx_raw:<14} → ", style="bright_white")
-            t.append(f"{ctx_fmt(context_tokens)}{ctx_suffix}", style="white")
+            t.append(ctx_fmt(context_tokens), style="white")
             t.append("/", style="white")
-            t.append(f"{ctx_fmt(max_context_tokens)}{ctx_suffix}", style="white")
+            t.append(ctx_fmt(max_context_tokens), style="white")
             t.append(f" ({pct:.1f}%)", style=_context_pct_color(int(pct)))
 
         self.update(t)
