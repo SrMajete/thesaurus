@@ -74,6 +74,13 @@ Screen {
     background: black 0%;
 }
 
+/* Cap text width so content doesn't stretch to the terminal edge.
+   The scrollbar stays at the far right (it's on VerticalScroll,
+   not on the children). */
+#messages > * {
+    max-width: 200;
+}
+
 /* Prompt border mirrors the user/agent text palette: unfocused ->
    ``.user`` cyan (``#5fd7d7``) so the box reads as the user's
    editable space; focused -> ``.agent`` pastel green (``#87d787``)
@@ -98,7 +105,7 @@ Screen {
    edge of scrollback content. Colors come from the Rich ``Text``
    inside, so no CSS ``color:`` property here. */
 #token-counter {
-    height: 2;
+    height: 4;
     margin-top: 2;
     padding: 0 1;
     text-align: left;
@@ -259,32 +266,29 @@ def _scale(peak: int) -> tuple[str, int, int]:
     return "M", 1_000_000, 1
 
 
+_LABEL_WIDTH = 14  # widest label: "cumulative(K)"
+
+
 def _format_token_line(
     in_tokens: int,
     cached_tokens: int,
     out_tokens: int,
     label: str = "",
-    context_tokens: int | None = None,
-    max_context_tokens: int | None = None,
 ) -> Text:
-    """Build a colored token info line.
-
-    ``label`` (e.g. ``"delta"`` or ``"cumulative"``) is inserted after
-    ``tokens`` in the prefix. Context info is appended when both
-    context params are provided.
-    """
+    """Build a colored ``label → input=X (X cached), output=X`` line."""
     suffix, divisor, decimals = _scale(max(in_tokens, cached_tokens, out_tokens))
 
     def fmt(n: int) -> str:
         return f"{n:,}" if divisor == 1 else f"{n / divisor:.{decimals}f}"
 
-    # Build prefix: tokens(label, K) → or tokens(label) → or tokens(K) →
+    # Left-justify label, pad to fixed width so → arrows align.
     if label and suffix:
-        prefix = f"tokens({label}, {suffix}) → "
+        raw_label = f"{label}({suffix})"
     elif label:
-        prefix = f"tokens({label}) → "
+        raw_label = label
     else:
-        prefix = f"tokens({suffix}) → " if suffix else "tokens → "
+        raw_label = f"({suffix})" if suffix else ""
+    prefix = f"{raw_label:<{_LABEL_WIDTH}} → " if raw_label else ""
 
     t = Text()
     t.append(prefix, style="bright_white")
@@ -295,22 +299,6 @@ def _format_token_line(
     t.append(" cached), ", style="white")
     t.append("output=", style="#87d787")
     t.append(fmt(out_tokens), style="#00ff5f")
-
-    if context_tokens is not None and max_context_tokens and max_context_tokens > 0:
-        # Context ratio uses shared scale from the larger value.
-        ctx_suffix, ctx_div, ctx_dec = _scale(max_context_tokens)
-
-        def ctx_fmt(n: int) -> str:
-            return f"{n:,}" if ctx_div == 1 else f"{n / ctx_div:.{ctx_dec}f}"
-
-        pct = min(100.0, context_tokens / max_context_tokens * 100)
-        t.append(", ", style="white")
-        t.append("context=", style="bright_white")
-        t.append(f"{ctx_fmt(context_tokens)}{ctx_suffix}", style="white")
-        t.append("/", style="white")
-        t.append(f"{ctx_fmt(max_context_tokens)}{ctx_suffix}", style="white")
-        t.append(f" ({pct:.1f}%)", style=_context_pct_color(int(pct)))
-
     return t
 
 
@@ -623,22 +611,37 @@ class TokenCounter(Static):
         context_tokens: int | None = None,
         max_context_tokens: int | None = None,
     ) -> None:
-        cum_line = _format_token_line(
-            cum_in, cum_cached, cum_out, label="cumulative",
-            context_tokens=context_tokens,
-            max_context_tokens=max_context_tokens,
-        )
+        t = Text()
+        t.append("tokens:\n", style="bright_white")
+
         if delta_in or delta_cached or delta_out:
             delta_line = _format_token_line(
                 delta_in, delta_cached, delta_out, label="delta",
             )
-            combined = Text()
-            combined.append_text(delta_line)
-            combined.append("\n")
-            combined.append_text(cum_line)
-            self.update(combined)
-        else:
-            self.update(cum_line)
+            t.append("- ")
+            t.append_text(delta_line)
+            t.append("\n")
+
+        cum_line = _format_token_line(
+            cum_in, cum_cached, cum_out, label="cumulative",
+        )
+        t.append("- ")
+        t.append_text(cum_line)
+
+        if context_tokens is not None and max_context_tokens and max_context_tokens > 0:
+            ctx_suffix, ctx_div, ctx_dec = _scale(max_context_tokens)
+            def ctx_fmt(n: int) -> str:
+                return f"{n:,}" if ctx_div == 1 else f"{n / ctx_div:.{ctx_dec}f}"
+            pct = min(100.0, context_tokens / max_context_tokens * 100)
+            ctx_raw = f"context({ctx_suffix})" if ctx_suffix else "context"
+            t.append("\n- ")
+            t.append(f"{ctx_raw:<14} → ", style="bright_white")
+            t.append(f"{ctx_fmt(context_tokens)}{ctx_suffix}", style="white")
+            t.append("/", style="white")
+            t.append(f"{ctx_fmt(max_context_tokens)}{ctx_suffix}", style="white")
+            t.append(f" ({pct:.1f}%)", style=_context_pct_color(int(pct)))
+
+        self.update(t)
 
 
 # ───────────────────────────────────────────────────────────────────────────
