@@ -9,8 +9,8 @@ in parallel, consecutive non-read-only tools run serially with permission
 checks. Order is always preserved.
 
 ``make_plan`` and ``send_response`` are special: their input fields are
-streamed live to the user during the API call (see
-``api_client._STREAM_FIELDS_BY_TOOL``), so the processor doesn't render
+streamed live to the user during the LLM adapter's streaming loop, so
+the processor doesn't render
 them after the fact. The processor's job for these tools is to persist
 the plan on the agent (for next-turn system prompt injection) and to emit
 ``tool_result`` blocks for message history consistency — every
@@ -26,11 +26,11 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-from .api_client import ToolCall, stream_response
+from .ports import ToolCall
 from .context import prune_tool_results
 from .messages import assistant_message, tool_result, user_message
 from .prompts import build_system_prompt
-from .tools.base import Tool, ToolName, find_tool
+from thesaurus.tools.base import Tool, ToolName, find_tool
 
 if TYPE_CHECKING:
     from .agent import Agent
@@ -73,9 +73,7 @@ async def run_loop(agent: "Agent") -> None:
             env_info=agent.env_info, current_plan=agent.plan
         )
 
-        response = await stream_response(
-            client=agent.client,
-            model=agent.model,
+        response = await agent.llm.stream_response(
             messages=agent.messages,
             system=system,
             tools=agent.api_tools,
@@ -176,8 +174,8 @@ def _format_plan(thinking: str, roadmap: str) -> str:
     """Combine the make_plan tool's thinking and roadmap into a single
     markdown block for injection into the next turn's system prompt.
 
-    CLI display is handled separately by the streaming renderer in
-    ``api_client.py``, which prints ``make_plan.thinking`` and
+    CLI display is handled separately by the LLM adapter's streaming
+    renderer, which prints ``make_plan.thinking`` and
     ``make_plan.roadmap`` deltas live as the model writes them — this
     function is not involved in display. Keeping the format stable here
     means the model always sees its plan in the same shape it wrote it.

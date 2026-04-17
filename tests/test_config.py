@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from python_agent.config import Settings
+from thesaurus.adapters.config import Settings
 
 
 class TestSettings:
@@ -48,7 +48,7 @@ class TestSettings:
 
 class TestGetSettings:
     def test_returns_settings_instance(self, monkeypatch) -> None:
-        from python_agent.config import get_settings
+        from thesaurus.adapters.config import get_settings
         monkeypatch.setenv("API_PROVIDER", "bedrock")
         # get_settings reads from .env; rely on whatever's there or tolerate
         s = get_settings()

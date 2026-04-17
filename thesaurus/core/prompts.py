@@ -17,10 +17,6 @@ prefix after the first turn.
 """
 
 import logging
-import os
-import platform
-import subprocess
-from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -367,69 +363,3 @@ def _current_plan_section(plan: str) -> str:
 This is your active plan from the previous turn. It is the source of truth for where you are in the task. Read it carefully before calling the make_plan tool to update it. Do not rewrite from scratch — evolve it: mark items completed, insert new items where needed, and advance the in_progress marker.
 
 {plan}"""
-
-
-def environment_info() -> str:
-    """Gather runtime environment context (cwd, git info, platform, shell, date).
-
-    Called once per session by ``Agent.__init__`` and the result is cached
-    on the agent instance. The cached string is then passed into
-    ``build_system_prompt`` each turn via the ``env_info`` parameter.
-    """
-    cwd = os.getcwd()
-    system = platform.system().lower()
-    shell = os.environ.get("SHELL", "unknown")
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    git_info = _get_git_info()
-
-    git_lines = ""
-    if git_info:
-        git_lines = (
-            f"- **Git branch:** {git_info['branch']}\n"
-            f"- **Git status:** {git_info['status']}\n"
-        )
-
-    return f"""## Environment
-You have been invoked in the following environment:
-
-- **Working directory:** {cwd}
-- **Is a git repository:** {git_info is not None}
-{git_lines}- **Platform:** {system}
-- **Shell:** {shell}
-- **Date:** {now}
-- **Python interpreter:** not pre-detected; agent must check before first use."""
-
-
-# ───────────────────────────────────────────────────────────────────────────
-# Helpers
-# ───────────────────────────────────────────────────────────────────────────
-
-
-def _get_git_info() -> dict[str, str] | None:
-    """Collect git branch and status. Returns None if not in a git repo."""
-    try:
-        branch = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-
-        if branch.returncode != 0:
-            return None
-
-        status = subprocess.run(
-            ["git", "status", "--short"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        status_text = status.stdout.strip()
-
-        return {
-            "branch": branch.stdout.strip(),
-            "status": status_text if status_text else "clean",
-        }
-
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return None

@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from python_agent.tools._subprocess import _format_output, run_subprocess
+from thesaurus.tools._subprocess import _format_output, run_subprocess
 
 
 class TestRunSubprocess:

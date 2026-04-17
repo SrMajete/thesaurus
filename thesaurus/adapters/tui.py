@@ -9,11 +9,10 @@ Uses Textual for a true TUI experience:
 - live-streaming markdown for thinking and assistant response
 - inline permission prompts (no modal interruption)
 
-Implements the ``AgentCallbacks`` contract the core expects, so
-``agent.py``, ``processor.py``, ``api_client.py``, and the tools are
-unchanged. Callbacks fire on the Textual event loop (same asyncio loop
-``agent.process_input`` awaits on), so no thread-bridge indirection is
-needed.
+Implements the ``AgentCallbacks`` contract defined in ``core.agent``,
+so the core package and tools are unchanged. Callbacks fire on the
+Textual event loop (same asyncio loop ``agent.process_input`` awaits
+on), so no thread-bridge indirection is needed.
 """
 
 from __future__ import annotations
@@ -36,13 +35,14 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Static, TextArea
 
-from . import logging_config
-from .agent import Agent, AgentCallbacks
-from .client import fetch_max_context_tokens, make_client
-from .config import Settings
-from .tool_summaries import INTERCEPTED_TOOLS, summarize_params, tool_header_label
-from .tools import get_default_tools
-from .tools.base import ToolName
+from thesaurus.adapters import logging as logging_config
+from thesaurus.adapters.client_factory import fetch_max_context_tokens, make_llm_client
+from thesaurus.adapters.config import Settings
+from thesaurus.adapters.environment import environment_info
+from thesaurus.core.agent import Agent, AgentCallbacks
+from thesaurus.tool_summaries import INTERCEPTED_TOOLS, summarize_params, tool_header_label
+from thesaurus.tools import get_default_tools
+from thesaurus.tools.base import ToolName
 
 logger = logging.getLogger(__name__)
 
@@ -215,7 +215,7 @@ Spinner {
 # chunky 3D-shadow font — best "techy terminal tool" readability at our
 # scale. Swap the constant here to try another font (e.g. ``slant``,
 # ``big``, ``standard``); list available ones with ``pyfiglet -l``.
-_BANNER_TEXT = "PYTHON AGENT"
+_BANNER_TEXT = "THESAURUS"
 _BANNER_FONT = "ansi_shadow"
 
 
@@ -732,7 +732,7 @@ class TuiOutput:
 
 
 class AgentApp(App[None]):
-    """Full-screen Textual TUI for the Python Agent."""
+    """Full-screen Textual TUI for Thesaurus."""
 
     CSS = _CSS
     BINDINGS = [
@@ -746,8 +746,7 @@ class AgentApp(App[None]):
         self.settings = settings
         self.output = TuiOutput(self)
         self.agent = Agent(
-            client=make_client(settings),
-            model=settings.model,
+            llm=make_llm_client(settings),
             tools=get_default_tools(
                 confluence_url=settings.confluence_url,
                 confluence_email=settings.confluence_email,
@@ -760,6 +759,7 @@ class AgentApp(App[None]):
                 on_tool_result=self.output.on_tool_result,
                 ask_permission=self.output.ask_permission,
             ),
+            env_info=environment_info(),
             max_turns=settings.max_turns,
             max_context_tokens=fetch_max_context_tokens(settings),
             prune_context_threshold=settings.prune_context_threshold,

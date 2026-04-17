@@ -1,6 +1,6 @@
 """Tests for context pruning."""
 
-from python_agent.context import PLACEHOLDER, prune_tool_results
+from thesaurus.core.context import PLACEHOLDER, prune_tool_results
 
 
 def _user_tool_results(*contents: str, is_error: bool = False) -> dict:

@@ -5,7 +5,7 @@ import json
 import httpx
 import pytest
 
-from python_agent.tools.search_confluence import SearchConfluenceTool
+from thesaurus.tools.search_confluence import SearchConfluenceTool
 
 _URL = "https://test.atlassian.net"
 _EMAIL = "user@test.com"

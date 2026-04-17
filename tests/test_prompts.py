@@ -3,10 +3,12 @@
 import subprocess
 from unittest.mock import MagicMock, patch
 
-from python_agent.prompts import (
+from thesaurus.core.prompts import (
     _current_plan_section,
-    _get_git_info,
     build_system_prompt,
+)
+from thesaurus.adapters.environment import (
+    _get_git_info,
     environment_info,
 )
 

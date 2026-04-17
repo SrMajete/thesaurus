@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from python_agent.api_client import AgentResponse, ToolCall
-from python_agent.processor import (
+from thesaurus.core.ports import AgentResponse, ToolCall
+from thesaurus.core.processor import (
     _build_send_response_results,
     _collect_decisions,
     _execute_decisions,
@@ -17,7 +17,6 @@ from python_agent.processor import (
     _strip_reason,
     run_loop,
 )
-
 
 class _FakeTool:
     def __init__(
@@ -44,7 +43,6 @@ class _FakeTool:
             raise RuntimeError("boom")
         return self._result
 
-
 def _mock_agent(
     tools: list[_FakeTool] | None = None,
     messages: list[dict[str, Any]] | None = None,
@@ -69,7 +67,6 @@ def _mock_agent(
     agent.callbacks.ask_permission = AsyncMock(return_value=True)
     return agent
 
-
 class TestFormatPlan:
     def test_thinking_only(self) -> None:
         assert _format_plan("hello", "") == "## Thinking\n\nhello"
@@ -90,7 +87,6 @@ class TestFormatPlan:
         r = _format_plan("  t  ", "  r  ")
         assert "## Thinking\n\nt" in r
         assert "## Roadmap\n\nr" in r
-
 
 class TestHandlePlan:
     def test_empty_list_noop(self) -> None:
@@ -118,7 +114,6 @@ class TestHandlePlan:
         # _format_plan returns "" which is falsy; logger line skipped but
         # agent.plan is still set to ""
         assert agent.plan == ""
-
 
 class TestBuildSendResponseResults:
     def test_respond_only(self) -> None:
@@ -164,7 +159,6 @@ class TestBuildSendResponseResults:
         # Callback received is_error=True so the UI can show the skip as an error
         assert agent.callbacks.on_tool_result.call_args.args[-1] is True
 
-
 class TestStripReason:
     def test_removes_reason(self) -> None:
         assert _strip_reason({"reason": "x", "y": 1}) == {"y": 1}
@@ -174,7 +168,6 @@ class TestStripReason:
 
     def test_empty(self) -> None:
         assert _strip_reason({}) == {}
-
 
 class TestPartition:
     def test_empty(self) -> None:
@@ -206,7 +199,6 @@ class TestPartition:
         calls = [ToolCall(id="1", name="unknown", input={})]
         batches = _partition(agent, calls)
         assert batches[0][0] == (True, False)
-
 
 class TestCollectDecisions:
     async def test_auto_path(self) -> None:
@@ -241,7 +233,6 @@ class TestCollectDecisions:
         decisions = await _collect_decisions(agent, calls, needs_permission=True)
         assert decisions[0][1] is None
         assert decisions[0][2] is False
-
 
 class TestExecuteDecisions:
     async def test_successful_auto_execution(self) -> None:
@@ -336,7 +327,6 @@ class TestExecuteDecisions:
         )
         assert len(results) == 2
 
-
 class TestExecuteToolCalls:
     async def test_empty(self) -> None:
         agent = _mock_agent()
@@ -356,13 +346,12 @@ class TestExecuteToolCalls:
         assert results[0]["content"] == "READ"
         assert results[1]["content"] == "WROTE"
 
-
 class TestRunLoop:
     async def test_send_response_exits_loop(self, monkeypatch) -> None:
         agent = _mock_agent(messages=[{"role": "user", "content": "hi"}])
         agent.max_turns = 5
-        agent.client = MagicMock()
-        agent.model = "m"
+        agent.llm = MagicMock()
+        
         agent.env_info = "env"
         agent.api_tools = []
 
@@ -385,7 +374,7 @@ class TestRunLoop:
             calls_made[0] += 1
             return response
 
-        monkeypatch.setattr("python_agent.processor.stream_response", fake_stream)
+        agent.llm.stream_response = fake_stream
 
         await run_loop(agent)
         assert calls_made[0] == 1  # only one turn before send_response exits
@@ -397,8 +386,8 @@ class TestRunLoop:
         """If the model returns no tool calls (fallback), the loop exits."""
         agent = _mock_agent(messages=[{"role": "user", "content": "hi"}])
         agent.max_turns = 5
-        agent.client = MagicMock()
-        agent.model = "m"
+        agent.llm = MagicMock()
+        
         agent.env_info = "env"
         agent.api_tools = []
 
@@ -413,7 +402,7 @@ class TestRunLoop:
         async def fake_stream(**kwargs):  # type: ignore[no-untyped-def]
             return response
 
-        monkeypatch.setattr("python_agent.processor.stream_response", fake_stream)
+        agent.llm.stream_response = fake_stream
         await run_loop(agent)
         # Original user message + assistant content
         assert len(agent.messages) == 2
@@ -425,8 +414,8 @@ class TestRunLoop:
             messages=[{"role": "user", "content": "hi"}],
         )
         agent.max_turns = 5
-        agent.client = MagicMock()
-        agent.model = "m"
+        agent.llm = MagicMock()
+        
         agent.env_info = "env"
         agent.api_tools = []
 
@@ -455,7 +444,7 @@ class TestRunLoop:
             idx[0] += 1
             return r
 
-        monkeypatch.setattr("python_agent.processor.stream_response", fake_stream)
+        agent.llm.stream_response = fake_stream
 
         await run_loop(agent)
         assert idx[0] == 2  # 2 turns
@@ -468,8 +457,8 @@ class TestRunLoop:
             messages=[{"role": "user", "content": "hi"}],
         )
         agent.max_turns = 2
-        agent.client = MagicMock()
-        agent.model = "m"
+        agent.llm = MagicMock()
+        
         agent.env_info = "env"
         agent.api_tools = []
 
@@ -484,7 +473,7 @@ class TestRunLoop:
         async def fake_stream(**kwargs):  # type: ignore[no-untyped-def]
             return response
 
-        monkeypatch.setattr("python_agent.processor.stream_response", fake_stream)
+        agent.llm.stream_response = fake_stream
         await run_loop(agent)
         # Last message is the synthetic assistant notice
         last = agent.messages[-1]
@@ -495,7 +484,7 @@ class TestRunLoop:
         tool = _FakeTool("read_file", execute_result="A" * 1000)
         agent = _mock_agent(tools=[tool], max_context_tokens=100, prune_context_threshold=0.5)
         # Pre-populate old tool results we'd like to see pruned
-        from python_agent.messages import user_message
+        from thesaurus.core.messages import user_message
         agent.messages = [
             {"role": "user", "content": "start"},
             {"role": "assistant", "content": [
@@ -512,8 +501,8 @@ class TestRunLoop:
             ]},
         ]
         agent.max_turns = 1
-        agent.client = MagicMock()
-        agent.model = "m"
+        agent.llm = MagicMock()
+        
         agent.env_info = "env"
         agent.api_tools = []
 
@@ -529,7 +518,7 @@ class TestRunLoop:
         async def fake_stream(**kwargs):  # type: ignore[no-untyped-def]
             return response
 
-        monkeypatch.setattr("python_agent.processor.stream_response", fake_stream)
+        agent.llm.stream_response = fake_stream
         await run_loop(agent)
         # Old tool result content should be cleared
         assert agent.messages[2]["content"][0]["content"] == "[Tool output cleared]"
@@ -544,8 +533,8 @@ class TestRunLoop:
             messages=[{"role": "user", "content": "hi"}],
         )
         agent.max_turns = 1
-        agent.client = MagicMock()
-        agent.model = "m"
+        agent.llm = MagicMock()
+        
         agent.env_info = "env"
         agent.api_tools = []
 
@@ -561,9 +550,9 @@ class TestRunLoop:
             return response
 
         # prune returns 0 (nothing to prune)
-        monkeypatch.setattr("python_agent.processor.stream_response", fake_stream)
+        agent.llm.stream_response = fake_stream
         monkeypatch.setattr(
-            "python_agent.processor.prune_tool_results",
+            "thesaurus.core.processor.prune_tool_results",
             lambda *args, **kwargs: 0,
         )
         await run_loop(agent)
@@ -576,8 +565,8 @@ class TestRunLoop:
             messages=[{"role": "user", "content": "hi"}],
         )
         agent.max_turns = 1
-        agent.client = MagicMock()
-        agent.model = "m"
+        agent.llm = MagicMock()
+        
         agent.env_info = "env"
         agent.api_tools = []
 
@@ -595,9 +584,9 @@ class TestRunLoop:
         def broken_prune(*args, **kwargs):  # type: ignore[no-untyped-def]
             raise RuntimeError("prune failed")
 
-        monkeypatch.setattr("python_agent.processor.stream_response", fake_stream)
+        agent.llm.stream_response = fake_stream
         monkeypatch.setattr(
-            "python_agent.processor.prune_tool_results", broken_prune,
+            "thesaurus.core.processor.prune_tool_results", broken_prune,
         )
         # Should not raise
         await run_loop(agent)
@@ -608,8 +597,8 @@ class TestRunLoop:
         """If _execute_tool_calls raises, the finally stubs tool_results."""
         agent = _mock_agent(messages=[{"role": "user", "content": "hi"}])
         agent.max_turns = 1
-        agent.client = MagicMock()
-        agent.model = "m"
+        agent.llm = MagicMock()
+        
         agent.env_info = "env"
         agent.api_tools = []
 
@@ -627,9 +616,9 @@ class TestRunLoop:
         async def raising_exec(*args, **kwargs):  # type: ignore[no-untyped-def]
             raise KeyboardInterrupt()
 
-        monkeypatch.setattr("python_agent.processor.stream_response", fake_stream)
+        agent.llm.stream_response = fake_stream
         monkeypatch.setattr(
-            "python_agent.processor._execute_tool_calls", raising_exec,
+            "thesaurus.core.processor._execute_tool_calls", raising_exec,
         )
 
         with pytest.raises(KeyboardInterrupt):

@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from python_agent.tools.base import (
+from thesaurus.tools.base import (
     REASON_FIELD_DESCRIPTION,
     ToolName,
     find_tool,

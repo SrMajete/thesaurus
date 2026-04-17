@@ -15,7 +15,7 @@ class ToolName(StrEnum):
     """Canonical tool names. Single source of truth for dispatch.
 
     Every tool sets ``name = ToolName.X`` instead of a raw string literal,
-    and every consumer (processor, api_client, cli) imports ``ToolName``
+    and every consumer (processor, LLM adapter, TUI) imports ``ToolName``
     and compares against ``ToolName.X`` instead of ``"x"``. This collapses
     the raw-string dispatch keys scattered across the consumer files down
     to one authoritative list and makes future renames a one-line change.
@@ -77,7 +77,7 @@ class Tool(Protocol):
       other must set False.
     - ``is_intercepted``: if True, ``execute()`` is never called — the
       processor handles the tool specially (``make_plan`` updates
-      ``agent.plan``; ``send_response`` ends the turn) and ``api_client``
+      ``agent.plan``; ``send_response`` ends the turn) and the LLM adapter
       streams the tool's input fields live to the user via
       ``on_thinking`` / ``on_text``. Default: False (most tools execute
       normally). UI code reads this flag to skip per-tool spinners since
@@ -147,7 +147,7 @@ def tools_to_api_format(tools: list[Tool]) -> list[dict[str, Any]]:
     A ``reason`` field is auto-injected as the *first* property of every
     tool's schema so the model writes it before the other fields. This
     matters for streamable tools (make_plan, send_response): the streaming
-    renderer in ``api_client.py`` fires ``on_tool_start`` as soon as the
+    renderer in the LLM adapter fires ``on_tool_start`` as soon as the
     first field has content, and placing ``reason`` first guarantees the
     header line reads the reason instead of a fallback summary from partial
     content.

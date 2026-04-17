@@ -54,7 +54,7 @@ class MakePlanTool:
     }
     # is_intercepted=True signals that ``execute()`` is never called —
     # the processor handles plan dispatch (updating ``agent.plan``) and
-    # the api_client streams ``thinking`` / ``roadmap`` fields live to
+    # the LLM adapter streams ``thinking`` / ``roadmap`` fields live to
     # the user. The other two flags are still required by the Protocol;
     # the honest semantic values are: needs_permission=False (we never
     # prompt for plans), is_parallelizable=False (plans mutate

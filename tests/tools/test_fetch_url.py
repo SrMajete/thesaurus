@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from python_agent.tools.fetch_url import (
+from thesaurus.tools.fetch_url import (
     FetchUrlTool,
     _html_to_markdown,
     _html_to_text,

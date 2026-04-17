@@ -40,7 +40,7 @@ class _DebugOnlyFilter(logging.Filter):
 
 def configure(log_dir: Path) -> None:
     """Initialize logging. Call once at startup."""
-    our_logger = logging.getLogger("python_agent")
+    our_logger = logging.getLogger("thesaurus")
     our_logger.setLevel(logging.DEBUG)
 
     log_dir.mkdir(parents=True, exist_ok=True)

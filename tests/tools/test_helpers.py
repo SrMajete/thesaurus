@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from python_agent.tools._helpers import (
+from thesaurus.tools._helpers import (
     MAX_OUTPUT_CHARS,
     TIMEOUT_LIMIT,
     clamp_timeout,

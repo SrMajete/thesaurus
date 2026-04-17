@@ -2,7 +2,7 @@
 
 ## Context
 
-The `python_agent/` core loop is already concurrency-safe and streaming-capable. This plan covers everything needed to wrap it in a production web service: FastAPI + Gunicorn + Postgres + Docker + session checkpointing. Scoped for **thousands of concurrent customers**.
+The `thesaurus/` core loop is already concurrency-safe and streaming-capable. This plan covers everything needed to wrap it in a production web service: FastAPI + Gunicorn + Postgres + Docker + session checkpointing. Scoped for **thousands of concurrent customers**.
 
 **Locked decisions (from prior discussion):**
 
@@ -33,13 +33,49 @@ Gunicorn (N workers) — Uvicorn worker class, own DB pool per worker
 
 ---
 
+## Phase 0 — Hexagonal baseline [DONE]
+
+**Goal**: restructure the codebase into proper hexagonal architecture so the web layer can import from `thesaurus.core` without pulling in infrastructure dependencies.
+
+**What was done:**
+
+- Created `core/` package: `agent.py`, `processor.py`, `messages.py`, `context.py`, `prompts.py`, `ports.py`. Zero infrastructure imports.
+- Created `adapters/` package: `anthropic_llm.py`, `client_factory.py`, `environment.py`, `config.py`, `logging.py`, `tui.py`.
+- Defined `LLMClient` protocol in `core/ports.py` — the outbound port for LLM inference. Processor calls `agent.llm.stream_response()` through the port, not via a direct import.
+- Extracted `environment_info()` from `prompts.py` into `adapters/environment.py` — core no longer calls `subprocess` or `os`.
+- Moved `ToolCall` and `AgentResponse` from `api_client.py` to `core/ports.py` — core types live in core.
+- `Agent` constructor takes `llm: LLMClient` and `env_info: str` instead of `client: AsyncAnthropic` and `model: str`.
+- 293 tests pass, all imports updated.
+
+**File path changes for subsequent phases:**
+
+| Old path | New path |
+|---|---|
+| `thesaurus/agent.py` | `thesaurus/core/agent.py` |
+| `thesaurus/processor.py` | `thesaurus/core/processor.py` |
+| `thesaurus/messages.py` | `thesaurus/core/messages.py` |
+| `thesaurus/context.py` | `thesaurus/core/context.py` |
+| `thesaurus/prompts.py` | `thesaurus/core/prompts.py` |
+| `thesaurus/api_client.py` | `thesaurus/adapters/anthropic_llm.py` |
+| `thesaurus/client.py` | `thesaurus/adapters/client_factory.py` |
+| `thesaurus/config.py` | `thesaurus/adapters/config.py` |
+| `thesaurus/cli_tui.py` | `thesaurus/adapters/tui.py` |
+
+**Web layer import pattern:**
+```python
+from thesaurus.core import Agent, AgentCallbacks, LLMClient
+from thesaurus.tools import get_default_tools
+```
+
+---
+
 ## Phase 1 — Foundation (~1 week solo)
 
 **Goal**: end-to-end system in Docker Compose. One user, one session, streaming replies, state persists across restarts.
 
 ### Step 1.1 — Add `on_checkpoint` callback to the agent
 
-**Files**: `python_agent/agent.py`, `python_agent/processor.py`, `tests/test_agent.py`, `tests/test_processor.py`
+**Files**: `thesaurus/core/agent.py`, `thesaurus/core/processor.py`, `tests/test_agent.py`, `tests/test_processor.py`
 
 - Add `on_checkpoint: Callable[[], Awaitable[None]]` to `AgentCallbacks`
 - In `processor.run_loop`, call `await agent.callbacks.on_checkpoint()` at two points:
@@ -87,7 +123,7 @@ CREATE UNIQUE INDEX idx_messages_session_seq ON messages (session_id, seq);
 
 ### Step 1.3 — Minimal profile seam for tools
 
-**Files**: `python_agent/tools/registry.py`
+**Files**: `thesaurus/tools/registry.py`
 
 - `get_default_tools(profile: str = "coding") -> list[Tool]`
 - `profile="coding"` (default) returns today's full list — no existing callers break
@@ -97,17 +133,17 @@ CREATE UNIQUE INDEX idx_messages_session_seq ON messages (session_id, seq);
 
 ### Step 1.4 — Create the web package skeleton
 
-**Files**: `python_agent_web/__init__.py`, `python_agent_web/app.py`, `python_agent_web/db.py`
+**Files**: `thesaurus_web/__init__.py`, `thesaurus_web/app.py`, `thesaurus_web/db.py`
 
 - `app.py`: FastAPI app with lifespan hook (opens psycopg pool on startup, closes on shutdown)
 - `db.py`: `AsyncConnectionPool` wrapper, `execute`, `fetch_one`, `fetch_all` helpers using parameterized queries
 - Pool sized per-worker: `min=2`, `max=10`, configurable via env
 
-**Exit criterion**: `uvicorn python_agent_web.app:app` starts and connects to Postgres.
+**Exit criterion**: `uvicorn thesaurus_web.app:app` starts and connects to Postgres.
 
 ### Step 1.5 — Session store and rehydration
 
-**Files**: `python_agent_web/session.py`, `python_agent_web/callbacks.py`
+**Files**: `thesaurus_web/session.py`, `thesaurus_web/callbacks.py`
 
 - `SessionStore.create(user_id, profile) -> session_id` — INSERTs into `sessions`, returns UUID
 - `SessionStore.get(session_id) -> Agent` — looks up in-memory cache; if miss, reads `sessions` + `messages` from DB and builds a fresh `Agent` with messages populated
@@ -121,7 +157,7 @@ CREATE UNIQUE INDEX idx_messages_session_seq ON messages (session_id, seq);
 
 ### Step 1.6 — REST + SSE endpoints
 
-**Files**: `python_agent_web/routes/chat.py`, `python_agent_web/routes/sessions.py`, `python_agent_web/routes/health.py`, `python_agent_web/schemas.py`
+**Files**: `thesaurus_web/routes/chat.py`, `thesaurus_web/routes/sessions.py`, `thesaurus_web/routes/health.py`, `thesaurus_web/schemas.py`
 
 - `POST /chat/stream` → input `{session_id, text}`, returns `StreamingResponse` with `text/event-stream`. Consumer reads from the session's queue, emits SSE events. Events: `text`, `thinking`, `tool_start`, `tool_result`, `end`, `error`.
 - `POST /chat/message` → same input, waits for end-of-turn, returns full response as JSON. For non-streaming clients and testing.
@@ -160,7 +196,7 @@ CREATE UNIQUE INDEX idx_messages_session_seq ON messages (session_id, seq);
 - `conftest.py`: pytest fixture for a test Postgres (testcontainers-python), fresh DB per test
 - Unit tests: SSE event serialization, session rehydration, DB write failure handling
 - Integration test: start web app in-process, exercise the full flow (create session → send message → verify DB state → restart → resume)
-- Coverage target: ≥99% on `python_agent_web/` (same bar as core agent)
+- Coverage target: ≥99% on `thesaurus_web/` (same bar as core agent)
 
 **Exit criterion**: all tests green, coverage target met.
 
@@ -178,7 +214,7 @@ CREATE UNIQUE INDEX idx_messages_session_seq ON messages (session_id, seq);
 
 ### Step 2.1 — JWT authentication middleware
 
-**Files**: `python_agent_web/auth.py`, `python_agent_web/app.py`
+**Files**: `thesaurus_web/auth.py`, `thesaurus_web/app.py`
 
 - FastAPI dependency: extracts bearer token, validates against issuer's public key (JWKS), returns `user_id`
 - Middleware applied to all `/chat/*` and `/sessions/*` routes
@@ -191,7 +227,7 @@ CREATE UNIQUE INDEX idx_messages_session_seq ON messages (session_id, seq);
 
 ### Step 2.2 — Bedrock retry/fallback on transient errors
 
-**Files**: `python_agent/api_client.py` (minimal change) or a wrapper in the web layer
+**Files**: `thesaurus/adapters/anthropic_llm.py` (minimal change) or a new `LLMClient` adapter in the web layer
 
 - On 429 (throttling): retry up to 3 times with exponential backoff (1s, 2s, 4s)
 - On 500/503: retry once after 1s
@@ -202,7 +238,7 @@ CREATE UNIQUE INDEX idx_messages_session_seq ON messages (session_id, seq);
 
 ### Step 2.3 — Per-user rate limiting
 
-**Files**: `python_agent_web/rate_limit.py`, `_ci/migrations/002_rate_limits.sql`
+**Files**: `thesaurus_web/rate_limit.py`, `_ci/migrations/002_rate_limits.sql`
 
 - New table `rate_limits(user_id, window_start, request_count, token_count)`
 - Dependency `check_rate_limit(user_id)` runs before each `/chat/*` request
@@ -214,7 +250,7 @@ CREATE UNIQUE INDEX idx_messages_session_seq ON messages (session_id, seq);
 
 ### Step 2.4 — Structured logging
 
-**Files**: `python_agent/logging_config.py` (updates), `python_agent_web/app.py`
+**Files**: `thesaurus/adapters/logging.py` (updates), `thesaurus_web/app.py`
 
 - All logs JSON-formatted via `python-json-logger` or equivalent
 - Correlation IDs: `request_id` (generated per request), `session_id`, `user_id` propagated via `contextvars`
@@ -225,7 +261,7 @@ CREATE UNIQUE INDEX idx_messages_session_seq ON messages (session_id, seq);
 
 ### Step 2.5 — OpenTelemetry traces and metrics
 
-**Files**: `python_agent_web/observability.py`, `python_agent_web/app.py`
+**Files**: `thesaurus_web/observability.py`, `thesaurus_web/app.py`
 
 - OTel SDK initialization in lifespan hook
 - Auto-instrument FastAPI (via `opentelemetry-instrumentation-fastapi`) and `psycopg`
@@ -237,7 +273,7 @@ CREATE UNIQUE INDEX idx_messages_session_seq ON messages (session_id, seq);
 
 ### Step 2.6 — Graceful shutdown
 
-**Files**: `python_agent_web/app.py`, Gunicorn config
+**Files**: `thesaurus_web/app.py`, Gunicorn config
 
 - SIGTERM handler stops accepting new connections
 - In-flight SSE streams allowed to finish (with a 30s hard cap)
@@ -317,7 +353,7 @@ Choose based on what the load test revealed:
 
 ### Step 3.4 — Retention and archival
 
-**Files**: `python_agent_web/jobs/archive.py`, `_ci/cron/archive-cron.yaml` (K8s CronJob) or equivalent
+**Files**: `thesaurus_web/jobs/archive.py`, `_ci/cron/archive-cron.yaml` (K8s CronJob) or equivalent
 
 - Daily job:
   1. `SELECT id FROM sessions WHERE last_activity_at < NOW() - INTERVAL '30 days' AND archived_at IS NULL`
@@ -330,7 +366,7 @@ Choose based on what the load test revealed:
 
 ### Step 3.5 — Cost controls
 
-**Files**: `python_agent_web/rate_limit.py` (extend), dashboard config
+**Files**: `thesaurus_web/rate_limit.py` (extend), dashboard config
 
 - Per-user monthly token budget; hard cap (429 when exceeded)
 - Per-session max turns (`max_turns` from the existing agent config — surface as setting)
@@ -341,7 +377,7 @@ Choose based on what the load test revealed:
 
 ### Step 3.6 — Audit logging
 
-**Files**: `_ci/migrations/003_audit_log.sql`, `python_agent_web/audit.py`
+**Files**: `_ci/migrations/003_audit_log.sql`, `thesaurus_web/audit.py`
 
 - New table: `audit_log(id, user_id, session_id, action, metadata JSONB, created_at)`
 - Events recorded: session created, session deleted, auth success, auth failure, rate limit hit, tool call (name + params sanitized)
@@ -437,20 +473,20 @@ Phase 3 depends on Phase 2 deployed somewhere:
 
 ---
 
-## Files that change in `python_agent/` (minimal)
+## Files that change in `thesaurus/` (minimal)
 
-- `agent.py` — add `on_checkpoint` field to `AgentCallbacks`
-- `processor.py` — call `await agent.callbacks.on_checkpoint()` at two points
+- `core/agent.py` — add `on_checkpoint` field to `AgentCallbacks`
+- `core/processor.py` — call `await agent.callbacks.on_checkpoint()` at two points
 - `tools/registry.py` — add `profile` parameter to `get_default_tools`
-- `api_client.py` — Bedrock retry logic (Phase 2.2)
+- `adapters/anthropic_llm.py` — Bedrock retry logic (Phase 2.2), or implement a new `LLMClient` adapter
 - `tests/test_agent.py`, `tests/test_processor.py` — cover the new callback
 
-Everything else (`context.py`, `messages.py`, `tools/*.py` except registry, etc.) untouched.
+Everything else (`core/context.py`, `core/messages.py`, `tools/*.py` except registry, etc.) untouched.
 
 ## Files that are new
 
 ```
-python_agent_web/
+thesaurus_web/
 ├── __init__.py
 ├── app.py                        # FastAPI app, lifespan, router mounts
 ├── auth.py                       # JWT middleware (Phase 2.1)
@@ -481,7 +517,7 @@ _ci/
 └── load/
     └── load_test.py              # Phase 3.2
 
-tests/web/                        # mirrors python_agent_web/
+tests/web/                        # mirrors thesaurus_web/
 └── conftest.py                   # testcontainers-postgres fixture
 ```
 

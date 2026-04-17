@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 from ddgs.exceptions import DDGSException, RatelimitException, TimeoutException
 
-from python_agent.tools.web_search import WebSearchTool
+from thesaurus.tools.web_search import WebSearchTool
 
 
 def _result(title: str = "A Title", href: str = "https://example.com",
@@ -31,7 +31,7 @@ class TestInputValidation:
             return []
 
         monkeypatch.setattr(
-            "python_agent.tools.web_search._search_sync", fake_search,
+            "thesaurus.tools.web_search._search_sync", fake_search,
         )
         await WebSearchTool().execute(query="x", max_results=0)
         assert captured["n"] == 1
@@ -44,7 +44,7 @@ class TestInputValidation:
             return []
 
         monkeypatch.setattr(
-            "python_agent.tools.web_search._search_sync", fake_search,
+            "thesaurus.tools.web_search._search_sync", fake_search,
         )
         await WebSearchTool().execute(query="x", max_results=999)
         assert captured["n"] == 20
@@ -57,7 +57,7 @@ class TestInputValidation:
             return []
 
         monkeypatch.setattr(
-            "python_agent.tools.web_search._search_sync", fake_search,
+            "thesaurus.tools.web_search._search_sync", fake_search,
         )
         await WebSearchTool().execute(query="x", max_results=-5)
         assert captured["n"] == 1
@@ -70,7 +70,7 @@ class TestInputValidation:
             return []
 
         monkeypatch.setattr(
-            "python_agent.tools.web_search._search_sync", fake_search,
+            "thesaurus.tools.web_search._search_sync", fake_search,
         )
         await WebSearchTool().execute(query="x")
         assert captured["n"] == 5
@@ -89,7 +89,7 @@ class TestBehavior:
             return results
 
         monkeypatch.setattr(
-            "python_agent.tools.web_search._search_sync", fake_search,
+            "thesaurus.tools.web_search._search_sync", fake_search,
         )
         out = await WebSearchTool().execute(query="python async")
 
@@ -102,7 +102,7 @@ class TestBehavior:
 
     async def test_empty_results(self, monkeypatch) -> None:
         monkeypatch.setattr(
-            "python_agent.tools.web_search._search_sync",
+            "thesaurus.tools.web_search._search_sync",
             lambda q, n: [],
         )
         out = await WebSearchTool().execute(query="asdfghjkl zxcvbnm")
@@ -110,7 +110,7 @@ class TestBehavior:
 
     async def test_missing_title_shows_untitled(self, monkeypatch) -> None:
         monkeypatch.setattr(
-            "python_agent.tools.web_search._search_sync",
+            "thesaurus.tools.web_search._search_sync",
             lambda q, n: [_result(title="", href="https://x.com", body="body")],
         )
         out = await WebSearchTool().execute(query="x")
@@ -118,7 +118,7 @@ class TestBehavior:
 
     async def test_missing_url_or_body_handled(self, monkeypatch) -> None:
         monkeypatch.setattr(
-            "python_agent.tools.web_search._search_sync",
+            "thesaurus.tools.web_search._search_sync",
             lambda q, n: [{"title": "Title only"}],  # no href or body
         )
         out = await WebSearchTool().execute(query="x")
@@ -129,7 +129,7 @@ class TestBehavior:
             raise RatelimitException("slow down")
 
         monkeypatch.setattr(
-            "python_agent.tools.web_search._search_sync", raising,
+            "thesaurus.tools.web_search._search_sync", raising,
         )
         out = await WebSearchTool().execute(query="x")
         assert "rate-limited" in out
@@ -140,7 +140,7 @@ class TestBehavior:
             raise TimeoutException("slow")
 
         monkeypatch.setattr(
-            "python_agent.tools.web_search._search_sync", raising,
+            "thesaurus.tools.web_search._search_sync", raising,
         )
         out = await WebSearchTool().execute(query="x")
         assert "timed out" in out
@@ -150,7 +150,7 @@ class TestBehavior:
             raise DDGSException("backend failure")
 
         monkeypatch.setattr(
-            "python_agent.tools.web_search._search_sync", raising,
+            "thesaurus.tools.web_search._search_sync", raising,
         )
         out = await WebSearchTool().execute(query="x")
         assert "Error:" in out
@@ -161,7 +161,7 @@ class TestBehavior:
             raise RuntimeError("unexpected boom")
 
         monkeypatch.setattr(
-            "python_agent.tools.web_search._search_sync", raising,
+            "thesaurus.tools.web_search._search_sync", raising,
         )
         out = await WebSearchTool().execute(query="x")
         assert "Error:" in out
@@ -171,7 +171,7 @@ class TestBehavior:
         huge = [_result(title=f"t{i}", href=f"https://x.com/{i}", body="Y" * 20_000)
                 for i in range(100)]
         monkeypatch.setattr(
-            "python_agent.tools.web_search._search_sync",
+            "thesaurus.tools.web_search._search_sync",
             lambda q, n: huge,
         )
         out = await WebSearchTool().execute(query="x", max_results=20)
@@ -182,7 +182,7 @@ class TestSearchSyncIntegration:
     """The _search_sync helper wraps DDGS() with a context manager."""
 
     def test_search_sync_uses_ddgs_context_manager(self, monkeypatch) -> None:
-        from python_agent.tools import web_search
+        from thesaurus.tools import web_search
 
         enters: list[bool] = []
 

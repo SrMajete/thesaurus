@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from python_agent.tools.edit_file import EditFileTool
-from python_agent.tools.read_file import ReadFileTool
-from python_agent.tools.write_file import WriteFileTool
+from thesaurus.tools.edit_file import EditFileTool
+from thesaurus.tools.read_file import ReadFileTool
+from thesaurus.tools.write_file import WriteFileTool
 
 
 class TestReadFile:

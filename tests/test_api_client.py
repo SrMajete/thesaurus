@@ -4,12 +4,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from python_agent.api_client import (
-    AgentResponse,
-    ToolCall,
+from thesaurus.core.ports import AgentResponse, ToolCall
+from thesaurus.adapters.anthropic_llm import (
+    AnthropicLLMClient,
     _render_field,
     _with_message_cache_breakpoint,
-    stream_response,
 )
 
 
@@ -136,9 +135,7 @@ class TestStreamResponse:
         )
         client = self._mock_client_returning([], final)
 
-        result = await stream_response(
-            client=client,
-            model="m",
+        result = await AnthropicLLMClient(client=client, model="m").stream_response(
             messages=[{"role": "user", "content": "hi"}],
             system=[{"type": "text", "text": "sys"}],
             tools=[],
@@ -169,8 +166,7 @@ class TestStreamResponse:
 
         client.messages.stream = MagicMock(return_value=Ctx())
         with pytest.raises(APIError):
-            await stream_response(
-                client=client, model="m", messages=[],
+            await AnthropicLLMClient(client=client, model="m").stream_response( messages=[],
                 system=[], tools=[],
                 on_text=lambda t: None,
                 on_thinking=lambda t: None,
@@ -188,8 +184,7 @@ class TestStreamResponse:
             stop_reason="end_turn",
         )
         client = self._mock_client_returning([], final)
-        result = await stream_response(
-            client=client, model="m",
+        result = await AnthropicLLMClient(client=client, model="m").stream_response(
             messages=[{"role": "user", "content": "hi"}],
             system=[], tools=[],
             on_text=lambda t: None,
@@ -232,8 +227,7 @@ class TestStreamResponse:
 
         thinking_chunks: list[str] = []
         tool_starts: list[tuple[str, str, dict]] = []
-        await stream_response(
-            client=client, model="m",
+        await AnthropicLLMClient(client=client, model="m").stream_response(
             messages=[{"role": "user", "content": "hi"}],
             system=[], tools=[],
             on_text=lambda t: None,
@@ -274,8 +268,7 @@ class TestStreamResponse:
         client = self._mock_client_returning(events, final)
 
         chunks: list[str] = []
-        await stream_response(
-            client=client, model="m",
+        await AnthropicLLMClient(client=client, model="m").stream_response(
             messages=[{"role": "user", "content": "hi"}],
             system=[], tools=[],
             on_text=chunks.append,
@@ -316,8 +309,7 @@ class TestStreamResponse:
         )
         client = self._mock_client_returning(events, final)
         # Should not raise despite the invalid JSON fragment
-        result = await stream_response(
-            client=client, model="m",
+        result = await AnthropicLLMClient(client=client, model="m").stream_response(
             messages=[{"role": "user", "content": "hi"}],
             system=[], tools=[],
             on_text=lambda t: None,
@@ -354,8 +346,7 @@ class TestStreamResponse:
         )
         client = self._mock_client_returning(events, final)
         chunks: list[str] = []
-        await stream_response(
-            client=client, model="m",
+        await AnthropicLLMClient(client=client, model="m").stream_response(
             messages=[{"role": "user", "content": "hi"}],
             system=[], tools=[],
             on_text=lambda t: None,
@@ -377,8 +368,7 @@ class TestStreamResponse:
             stop_reason="end_turn",
         )
         client = self._mock_client_returning([], final)
-        result = await stream_response(
-            client=client, model="m",
+        result = await AnthropicLLMClient(client=client, model="m").stream_response(
             messages=[{"role": "user", "content": "hi"}],
             system=[], tools=[],
             on_text=lambda t: None,

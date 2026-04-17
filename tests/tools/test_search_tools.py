@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from python_agent.tools.glob_files import GlobFilesTool
-from python_agent.tools.grep_files import GrepFilesTool
+from thesaurus.tools.glob_files import GlobFilesTool
+from thesaurus.tools.grep_files import GrepFilesTool
 
 
 class TestGlobFiles:
@@ -184,7 +184,7 @@ class TestGrepFiles:
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create)
         monkeypatch.setattr(
-            "python_agent.tools.grep_files._TIMEOUT", 0.01,
+            "thesaurus.tools.grep_files._TIMEOUT", 0.01,
         )
         result = await GrepFilesTool().execute(
             pattern="x", path=str(tmp_path),
@@ -215,7 +215,7 @@ class TestGrepFiles:
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create)
         monkeypatch.setattr(
-            "python_agent.tools.grep_files._TIMEOUT", 0.01,
+            "thesaurus.tools.grep_files._TIMEOUT", 0.01,
         )
         result = await GrepFilesTool().execute(
             pattern="x", path=str(tmp_path),

@@ -1,12 +1,12 @@
 """Tests for tool summary helpers and intercepted-tool set."""
 
-from python_agent.tool_summaries import (
+from thesaurus.tool_summaries import (
     INTERCEPTED_TOOLS,
     SUMMARIZERS,
     summarize_params,
     tool_header_label,
 )
-from python_agent.tools.base import ToolName
+from thesaurus.tools.base import ToolName
 
 
 class TestSummarizers:

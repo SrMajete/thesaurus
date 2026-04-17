@@ -2,14 +2,12 @@
 
 from unittest.mock import MagicMock, patch
 
-from anthropic import AsyncAnthropic, AsyncAnthropicBedrock
-
-from python_agent.client import (
+from thesaurus.adapters.client_factory import (
     _DEFAULT_MAX_CONTEXT_TOKENS,
     fetch_max_context_tokens,
-    make_client,
+    make_llm_client,
 )
-from python_agent.config import Settings
+from thesaurus.adapters.config import Settings
 
 
 def _settings(**overrides) -> Settings:  # type: ignore[no-untyped-def]
@@ -24,16 +22,16 @@ def _settings(**overrides) -> Settings:  # type: ignore[no-untyped-def]
 
 class TestMakeClient:
     def test_anthropic_returns_async_client(self) -> None:
-        c = make_client(_settings())
-        assert isinstance(c, AsyncAnthropic)
+        c = make_llm_client(_settings())
+        assert hasattr(c, "stream_response")
 
     def test_bedrock_returns_bedrock_client(self) -> None:
-        c = make_client(_settings(
+        c = make_llm_client(_settings(
             api_provider="bedrock",
             anthropic_api_key=None,
             aws_region="us-east-1",
         ))
-        assert isinstance(c, AsyncAnthropicBedrock)
+        assert hasattr(c, "stream_response")
 
 
 class TestFetchMaxContextTokens:
@@ -49,7 +47,7 @@ class TestFetchMaxContextTokens:
         mock_client = MagicMock()
         mock_client.models.retrieve.return_value = mock_info
 
-        with patch("python_agent.client.Anthropic", return_value=mock_client):
+        with patch("thesaurus.adapters.client_factory.Anthropic", return_value=mock_client):
             result = fetch_max_context_tokens(_settings())
         assert result == 1_000_000
 
@@ -57,7 +55,7 @@ class TestFetchMaxContextTokens:
         mock_client = MagicMock()
         mock_client.models.retrieve.side_effect = Exception("network down")
 
-        with patch("python_agent.client.Anthropic", return_value=mock_client):
+        with patch("thesaurus.adapters.client_factory.Anthropic", return_value=mock_client):
             result = fetch_max_context_tokens(_settings())
         assert result == _DEFAULT_MAX_CONTEXT_TOKENS
 
@@ -67,7 +65,7 @@ class TestFetchMaxContextTokens:
         mock_client = MagicMock()
         mock_client.models.retrieve.return_value = mock_info
 
-        with patch("python_agent.client.Anthropic", return_value=mock_client):
+        with patch("thesaurus.adapters.client_factory.Anthropic", return_value=mock_client):
             result = fetch_max_context_tokens(_settings())
         assert result == _DEFAULT_MAX_CONTEXT_TOKENS
 
@@ -77,6 +75,6 @@ class TestFetchMaxContextTokens:
         mock_client = MagicMock()
         mock_client.models.retrieve.return_value = mock_info
 
-        with patch("python_agent.client.Anthropic", return_value=mock_client):
+        with patch("thesaurus.adapters.client_factory.Anthropic", return_value=mock_client):
             result = fetch_max_context_tokens(_settings())
         assert result == _DEFAULT_MAX_CONTEXT_TOKENS

@@ -1,4 +1,4 @@
-# Python Agent
+# Thesaurus
 
 A streaming AI agent built on the Anthropic Claude API. Learning lab for agentic AI patterns.
 
@@ -64,15 +64,22 @@ Run at three points: before presenting a plan, before writing code, and before d
 6. **No unused / irrelevant / over-complicated code** — no dead imports, no speculative flexibility. Unused parameters required by callback contracts are deleted with `del`.
 7. **Principle-compliant** — name which principles the change upholds *and* which trade-offs are deliberate. Silent trade-offs are bugs.
 
-## Architecture
+## Architecture (hexagonal)
 
 ```
-cli_tui.py → agent.py (state) → processor.py (logic) → api_client.py (API)
-                                        ↕
-                                   tools/*.py (execution)
-
-shared helpers: client.py (API client factory) · tool_summaries.py (SUMMARIZERS, INTERCEPTED_TOOLS)
+adapters/tui.py ─┐
+(future web)     ─┤→ core/agent.py (state) → core/processor.py (logic) → LLMClient port
+                  │                                    ↕
+                  │                              tools/*.py (execution)
+                  │
+adapters/: anthropic_llm.py · client_factory.py · environment.py · config.py · logging.py
+core/:     agent.py · processor.py · messages.py · context.py · prompts.py · ports.py
 ```
+
+- **`core/`** has zero infrastructure imports. The hexagonal guarantee.
+- **`core/ports.py`** defines `LLMClient` protocol, `ToolCall`, `AgentResponse` — the types that cross the core boundary.
+- **`adapters/`** groups all infrastructure. Adding a new adapter (web layer, database, different LLM) means adding a file here, not touching core.
+- **`tools/base.py`** defines the `Tool` Protocol and `ToolName` enum — a port definition that lives alongside its implementations.
 
 - **Agent** owns state (messages, plan, tools, callbacks). One instance per session.
 - **Processor** owns the loop logic. Pure — no I/O, no state.
@@ -93,7 +100,7 @@ shared helpers: client.py (API client factory) · tool_summaries.py (SUMMARIZERS
 
 ## Conventions
 
-- **Python 3.12.10**, pyenv virtualenv `python-agent`
+- **Python 3.12.10**, pyenv virtualenv `thesaurus`
 - **Tool names:** `verb_noun` snake_case, regex-checked at `Agent.__init__`
 - **`ToolName` StrEnum:** single source of truth for tool names
 - **No code in `__init__.py`** — re-exports only
@@ -111,7 +118,7 @@ shared helpers: client.py (API client factory) · tool_summaries.py (SUMMARIZERS
 
 ## Adding a Tool
 
-1. Create `python_agent/tools/your_tool.py` with a class satisfying the `Tool` Protocol.
+1. Create `thesaurus/tools/your_tool.py` with a class satisfying the `Tool` Protocol.
 2. Add `YOUR_TOOL = "your_tool"` to `ToolName` in `tools/base.py`.
 3. Register in `tools/registry.py`.
 4. Add a summarizer entry in `tool_summaries.py` `SUMMARIZERS` (required — without it, the fallback truncates params to 100 chars).
@@ -119,12 +126,12 @@ shared helpers: client.py (API client factory) · tool_summaries.py (SUMMARIZERS
 
 ## Porting to a new domain
 
-The core agent infrastructure (`agent.py`, `processor.py`, `api_client.py`, `context.py`, the `Tool` Protocol, all shared helpers) is domain-agnostic and reusable as-is. Converting to a non-coding agent means editing these coupling points:
+The `core/` package (`agent.py`, `processor.py`, `ports.py`, `context.py`, `messages.py`, `prompts.py`) is domain-agnostic and reusable as-is. Converting to a non-coding agent means editing these coupling points:
 
-- `prompts.py` — `IDENTITY`'s "software engineering tasks" phrase, `WORKFLOW`'s tool-preference list, `DOING_TASKS`'s coding clause, `CODE_QUALITY` and `BUG_HUNTING` sections (both entirely coding-specific), `EXPERIMENTATION`'s code examples
+- `core/prompts.py` — `IDENTITY`'s "software engineering tasks" phrase, `WORKFLOW`'s tool-preference list, `DOING_TASKS`'s coding clause, `CODE_QUALITY` and `BUG_HUNTING` sections (both entirely coding-specific), `EXPERIMENTATION`'s code examples
 - `tools/registry.py` — the coding-specific tool list; the two always-required infrastructure tools are `make_plan` and `send_response`
 - `tool_summaries.py` — remove/add entries for removed/added tools
-- `environment_info()` — git subprocess calls; replace with domain-relevant context
+- `adapters/environment.py` — git subprocess calls; replace with domain-relevant context
 
 Tools that are universally useful and keep: `read_file`, `write_file`, `edit_file`, `glob_files`, `grep_files`, `run_bash`, `run_python`, `fetch_url`, `web_search`.
 
@@ -148,7 +155,7 @@ No commit is exempt, regardless of size.
 `API_PROVIDER` in `.env`: `anthropic` (default, needs `ANTHROPIC_API_KEY`) or `bedrock` (AWS creds + ARN inference-profile model IDs).
 
 ```bash
-python -m python_agent
+python -m thesaurus
 ```
 
 Launches the Textual TUI. Requires a real TTY (fails on piped stdin).

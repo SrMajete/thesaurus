@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from python_agent.agent import Agent, AgentCallbacks
+from thesaurus.core.agent import Agent, AgentCallbacks
 
 
 def _noop_callbacks() -> AgentCallbacks:
@@ -61,12 +61,12 @@ class _SingleWordTool:
 class TestAgentInit:
     def test_basic_construction(self) -> None:
         a = Agent(
-            client=MagicMock(),
-            model="claude-test",
+            llm=MagicMock(),
+            env_info="test env",
             tools=[_FakeTool()],
             callbacks=_noop_callbacks(),
         )
-        assert a.model == "claude-test"
+        assert a.env_info == "test env"
         assert a.messages == []
         assert a.plan is None
         assert a.total_input_tokens == 0
@@ -77,8 +77,8 @@ class TestAgentInit:
     def test_rejects_invalid_tool_name(self) -> None:
         with pytest.raises(ValueError, match="snake_case"):
             Agent(
-                client=MagicMock(),
-                model="m",
+                llm=MagicMock(),
+                env_info="test",
                 tools=[_InvalidNameTool()],
                 callbacks=_noop_callbacks(),
             )
@@ -86,16 +86,16 @@ class TestAgentInit:
     def test_rejects_single_word_tool_name(self) -> None:
         with pytest.raises(ValueError, match="snake_case"):
             Agent(
-                client=MagicMock(),
-                model="m",
+                llm=MagicMock(),
+                env_info="test",
                 tools=[_SingleWordTool()],
                 callbacks=_noop_callbacks(),
             )
 
     def test_custom_max_context_and_threshold(self) -> None:
         a = Agent(
-            client=MagicMock(),
-            model="m",
+            llm=MagicMock(),
+            env_info="test",
             tools=[_FakeTool()],
             callbacks=_noop_callbacks(),
             max_context_tokens=1_000_000,
@@ -106,8 +106,8 @@ class TestAgentInit:
 
     def test_api_tools_formatted(self) -> None:
         a = Agent(
-            client=MagicMock(),
-            model="m",
+            llm=MagicMock(),
+            env_info="test",
             tools=[_FakeTool()],
             callbacks=_noop_callbacks(),
         )
@@ -116,8 +116,8 @@ class TestAgentInit:
 
     def test_env_info_captured(self) -> None:
         a = Agent(
-            client=MagicMock(),
-            model="m",
+            llm=MagicMock(),
+            env_info="test",
             tools=[_FakeTool()],
             callbacks=_noop_callbacks(),
         )
@@ -130,8 +130,8 @@ class TestProcessInput:
         self, monkeypatch,
     ) -> None:
         a = Agent(
-            client=MagicMock(),
-            model="m",
+            llm=MagicMock(),
+            env_info="test",
             tools=[_FakeTool()],
             callbacks=_noop_callbacks(),
         )
@@ -142,7 +142,7 @@ class TestProcessInput:
             ran["called"] = True
             assert agent.messages[-1] == {"role": "user", "content": "hi"}
 
-        monkeypatch.setattr("python_agent.agent.run_loop", fake_loop)
+        monkeypatch.setattr("thesaurus.core.agent.run_loop", fake_loop)
         await a.process_input("hi")
         assert ran["called"] is True
         assert a.messages[0]["content"] == "hi"

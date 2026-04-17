@@ -1,6 +1,6 @@
 """Tests for message construction helpers."""
 
-from python_agent.messages import assistant_message, tool_result, user_message
+from thesaurus.core.messages import assistant_message, tool_result, user_message
 
 
 class TestUserMessage:

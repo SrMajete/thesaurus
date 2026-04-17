@@ -2,10 +2,10 @@
 
 import pytest
 
-from python_agent.tools.make_plan import MakePlanTool
-from python_agent.tools.run_bash import RunBashTool
-from python_agent.tools.run_python import RunPythonTool
-from python_agent.tools.send_response import SendResponseTool
+from thesaurus.tools.make_plan import MakePlanTool
+from thesaurus.tools.run_bash import RunBashTool
+from thesaurus.tools.run_python import RunPythonTool
+from thesaurus.tools.send_response import SendResponseTool
 
 
 class TestRunBash:

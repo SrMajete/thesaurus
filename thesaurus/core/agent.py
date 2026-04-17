@@ -1,8 +1,8 @@
 """Agent — owns all conversation state.
 
-The Agent class holds the conversation messages, tools, and API client.
-The single public method ``process_input()`` takes a user message and
-delegates to the loop in ``processor.py`` for execution.
+The Agent class holds the conversation messages, LLM client port, and
+tools. The single public method ``process_input()`` takes a user message
+and delegates to the loop in ``processor.py`` for execution.
 
 Decoupled from I/O via callbacks so the agent can be driven by a CLI,
 web UI, test harness, or anything else.
@@ -12,12 +12,10 @@ import re
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
-from anthropic import AsyncAnthropic, AsyncAnthropicBedrock
-
+from .ports import LLMClient
 from .processor import run_loop
 from .messages import user_message
-from .prompts import environment_info
-from .tools.base import Tool, tools_to_api_format
+from thesaurus.tools.base import Tool, ToolName, tools_to_api_format
 
 
 # All tool names must be snake_case with at least two words joined by
@@ -80,10 +78,10 @@ class Agent:
 
     def __init__(
         self,
-        client: AsyncAnthropic | AsyncAnthropicBedrock,
-        model: str,
+        llm: LLMClient,
         tools: list[Tool],
         callbacks: AgentCallbacks,
+        env_info: str,
         max_turns: int = 10,
         max_context_tokens: int = 200_000,
         prune_context_threshold: float = 0.8,
@@ -95,8 +93,7 @@ class Agent:
                     "words joined by underscores (e.g. 'read_file')."
                 )
 
-        self.client = client
-        self.model = model
+        self.llm = llm
         self.tools = tools
         self.callbacks = callbacks
         self.max_turns = max_turns
@@ -104,11 +101,7 @@ class Agent:
         self.prune_context_threshold = prune_context_threshold
         self.messages: list[dict[str, Any]] = []
         self.api_tools = tools_to_api_format(tools)
-        # Cache the environment section once per session. It's injected into
-        # the system prompt every turn, but the underlying data (cwd, git
-        # branch/status, platform, shell) doesn't change within a session —
-        # and the git calls are subprocess spawns we don't want to repeat.
-        self.env_info: str = environment_info()
+        self.env_info = env_info
         # Current plan (thinking + roadmap) as markdown. Updated by the
         # processor every time the model calls the make_plan tool. Injected
         # into the system prompt each turn so the model sees the live plan

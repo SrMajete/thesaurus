@@ -32,7 +32,7 @@ class SendResponseTool:
     }
     # is_intercepted=True signals that ``execute()`` is never called —
     # the processor handles send_response by ending the turn and
-    # ``api_client`` streams the ``response`` field live to the user.
+    # the LLM adapter streams the ``response`` field live to the user.
     # The honest semantic values for the other two flags:
     # needs_permission=False (the response IS the user interaction —
     # prompting "may I send this?" is nonsensical), is_parallelizable=False

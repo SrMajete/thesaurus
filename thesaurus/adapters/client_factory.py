@@ -1,14 +1,16 @@
-"""API client factory.
+"""LLM client factory.
 
-Builds the async Anthropic client (direct API or AWS Bedrock) from
-``Settings``. Kept out of the CLI so both UI implementations can share
-one source of truth for how the client is constructed.
+Builds the ``LLMClient`` adapter from ``Settings``. Composition roots
+(TUI, future web layer) call ``make_llm_client`` to get a port-typed
+client without knowing which SDK is behind it.
 """
 
 import logging
 
 from anthropic import Anthropic, AsyncAnthropic, AsyncAnthropicBedrock
 
+from thesaurus.core.ports import LLMClient
+from .anthropic_llm import AnthropicLLMClient
 from .config import Settings
 
 logger = logging.getLogger(__name__)
@@ -16,17 +18,19 @@ logger = logging.getLogger(__name__)
 _DEFAULT_MAX_CONTEXT_TOKENS = 200_000
 
 
-def make_client(settings: Settings) -> AsyncAnthropic | AsyncAnthropicBedrock:
-    """Create the API client based on the configured provider."""
+def make_llm_client(settings: Settings) -> LLMClient:
+    """Create the LLM client based on the configured provider."""
     if settings.api_provider == "bedrock":
-        return AsyncAnthropicBedrock(
+        raw: AsyncAnthropic | AsyncAnthropicBedrock = AsyncAnthropicBedrock(
             aws_region=settings.aws_region,
             aws_profile=settings.aws_profile,
             aws_access_key=settings.aws_access_key,
             aws_secret_key=settings.aws_secret_key,
             aws_session_token=settings.aws_session_token,
         )
-    return AsyncAnthropic(api_key=settings.anthropic_api_key)
+    else:
+        raw = AsyncAnthropic(api_key=settings.anthropic_api_key)
+    return AnthropicLLMClient(client=raw, model=settings.model)
 
 
 def fetch_max_context_tokens(settings: Settings) -> int:
