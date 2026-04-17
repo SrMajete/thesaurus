@@ -22,6 +22,9 @@ def get_default_tools(
     confluence_url: str | None = None,
     confluence_email: str | None = None,
     confluence_api_key: str | None = None,
+    databricks_host: str | None = None,
+    databricks_api_key: str | None = None,
+    databricks_warehouse_id: str | None = None,
 ) -> list[Tool]:
     """Return instances of all built-in tools.
 
@@ -47,5 +50,12 @@ def get_default_tools(
             url=confluence_url,
             email=confluence_email,
             api_key=confluence_api_key,
+        ))
+    if databricks_host and databricks_api_key and databricks_warehouse_id:
+        from .query_databricks import QueryDatabricksTool
+        tools.append(QueryDatabricksTool(
+            host=databricks_host,
+            api_key=databricks_api_key,
+            warehouse_id=databricks_warehouse_id,
         ))
     return tools

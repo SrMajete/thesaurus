@@ -28,8 +28,15 @@ def make_llm_client(settings: Settings) -> LLMClient:
             aws_secret_key=settings.aws_secret_key,
             aws_session_token=settings.aws_session_token,
         )
-    else:
-        raw = AsyncAnthropic(api_key=settings.anthropic_api_key)
+        return AnthropicLLMClient(client=raw, model=settings.model)
+    if settings.api_provider == "openai":
+        from .openai_llm import OpenAILLMClient
+        return OpenAILLMClient(
+            base_url=settings.openai_base_url,
+            api_key=settings.openai_api_key,
+            model=settings.model,
+        )
+    raw = AsyncAnthropic(api_key=settings.anthropic_api_key)
     return AnthropicLLMClient(client=raw, model=settings.model)
 
 
@@ -41,6 +48,8 @@ def fetch_max_context_tokens(settings: Settings) -> int:
     """
     if settings.api_provider == "bedrock":
         return _DEFAULT_MAX_CONTEXT_TOKENS
+    if settings.api_provider == "openai":
+        return settings.openai_max_context_tokens
 
     try:
         client = Anthropic(api_key=settings.anthropic_api_key)

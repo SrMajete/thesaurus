@@ -754,6 +754,9 @@ class AgentApp(App[None]):
                 confluence_url=settings.confluence_url,
                 confluence_email=settings.confluence_email,
                 confluence_api_key=settings.confluence_api_key,
+                databricks_host=settings.databricks_host,
+                databricks_api_key=settings.databricks_api_key,
+                databricks_warehouse_id=settings.databricks_warehouse_id,
             ),
             callbacks=AgentCallbacks(
                 on_thinking=self.output.on_thinking,

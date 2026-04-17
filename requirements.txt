@@ -1,4 +1,5 @@
 anthropic[bedrock]>=0.96.0
+openai>=2.0.0
 pydantic-settings>=2.13.1
 jiter>=0.14.0
 ripgrep>=15.0.0

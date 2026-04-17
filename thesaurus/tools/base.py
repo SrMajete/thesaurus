@@ -45,6 +45,7 @@ class ToolName(StrEnum):
     FETCH_URL = "fetch_url"
     WEB_SEARCH = "web_search"
     SEARCH_CONFLUENCE = "search_confluence"
+    QUERY_DATABRICKS = "query_databricks"
 
 
 REASON_FIELD_DESCRIPTION = (

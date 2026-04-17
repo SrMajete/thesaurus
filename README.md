@@ -25,9 +25,9 @@ python -m thesaurus
 - Shows a two-field plan (thinking + roadmap) that the model evolves every turn.
 - Surfaces per-turn and cumulative token usage with a cache-hit breakdown.
 - Queues user prompts typed during a running turn — executed in submission order.
-- Supports direct Anthropic API and AWS Bedrock.
+- Supports direct Anthropic API, AWS Bedrock, and any OpenAI-compatible endpoint (Ollama, LM Studio, vLLM, OpenAI, Groq, …).
 
-Built-in tools: `read_file`, `write_file`, `edit_file`, `glob_files`, `grep_files`, `run_bash`, `run_python`, `fetch_url`, `web_search`, `search_confluence` (optional, needs config), plus the intercepted `make_plan` / `send_response` that drive the agent loop.
+Built-in tools: `read_file`, `write_file`, `edit_file`, `glob_files`, `grep_files`, `run_bash`, `run_python`, `fetch_url`, `web_search`, `search_confluence` (optional), `query_databricks` (optional), plus the intercepted `make_plan` / `send_response` that drive the agent loop.
 
 ## Repo layout (hexagonal)
 
@@ -42,6 +42,7 @@ thesaurus/
 │   └── context.py         token pruning
 ├── adapters/              infrastructure implementations
 │   ├── anthropic_llm.py   AnthropicLLMClient (LLMClient adapter)
+│   ├── openai_llm.py      OpenAILLMClient (any /v1/chat/completions endpoint)
 │   ├── client_factory.py  make_llm_client from Settings
 │   ├── environment.py     OS/git env info (injected into Agent)
 │   ├── config.py          pydantic-settings loader
