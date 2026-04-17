@@ -44,6 +44,7 @@ class ToolName(StrEnum):
     SEND_RESPONSE = "send_response"
     FETCH_URL = "fetch_url"
     WEB_SEARCH = "web_search"
+    SEARCH_CONFLUENCE = "search_confluence"
 
 
 REASON_FIELD_DESCRIPTION = (

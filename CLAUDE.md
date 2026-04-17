@@ -105,6 +105,8 @@ shared helpers: client.py (API client factory) · tool_summaries.py (SUMMARIZERS
 - **Search:** `glob_files`, `grep_files`
 - **Execution:** `run_bash`, `run_python`
 - **Web:** `fetch_url` (HTTP GET → markdown/text/HTML via `httpx` + `markdownify`), `web_search` (DuckDuckGo via `ddgs`)
+- **Web:** `fetch_url` (HTTP GET → markdown/text/HTML via `httpx` + `markdownify`), `web_search` (DuckDuckGo via `ddgs`)
+- **Confluence:** `search_confluence` (optional — CQL search + body as markdown; needs `CONFLUENCE_URL`, `CONFLUENCE_EMAIL`, `CONFLUENCE_API_KEY`)
 - **Agent control:** `make_plan`, `send_response` (intercepted)
 
 ## Adding a Tool

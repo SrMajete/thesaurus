@@ -748,7 +748,11 @@ class AgentApp(App[None]):
         self.agent = Agent(
             client=make_client(settings),
             model=settings.model,
-            tools=get_default_tools(),
+            tools=get_default_tools(
+                confluence_url=settings.confluence_url,
+                confluence_email=settings.confluence_email,
+                confluence_api_key=settings.confluence_api_key,
+            ),
             callbacks=AgentCallbacks(
                 on_thinking=self.output.on_thinking,
                 on_text=self.output.on_text,

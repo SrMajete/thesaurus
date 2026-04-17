@@ -38,6 +38,7 @@ SUMMARIZERS: dict[ToolName, Callable[[dict[str, Any]], str]] = {
     ToolName.SEND_RESPONSE: lambda *_: "",
     ToolName.FETCH_URL: lambda p: p.get("url", ""),
     ToolName.WEB_SEARCH: lambda p: p.get("query", ""),
+    ToolName.SEARCH_CONFLUENCE: lambda p: p.get("query", ""),
 }
 
 

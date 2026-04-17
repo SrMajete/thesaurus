@@ -17,9 +17,18 @@ from .web_search import WebSearchTool
 from .write_file import WriteFileTool
 
 
-def get_default_tools() -> list[Tool]:
-    """Return instances of all built-in tools."""
-    return [
+def get_default_tools(
+    *,
+    confluence_url: str | None = None,
+    confluence_email: str | None = None,
+    confluence_api_key: str | None = None,
+) -> list[Tool]:
+    """Return instances of all built-in tools.
+
+    Optional tools (like Confluence search) are only included when
+    their required configuration is fully provided.
+    """
+    tools: list[Tool] = [
         MakePlanTool(),
         RunBashTool(),
         RunPythonTool(),
@@ -32,3 +41,11 @@ def get_default_tools() -> list[Tool]:
         WebSearchTool(),
         SendResponseTool(),
     ]
+    if confluence_url and confluence_email and confluence_api_key:
+        from .search_confluence import SearchConfluenceTool
+        tools.append(SearchConfluenceTool(
+            url=confluence_url,
+            email=confluence_email,
+            api_key=confluence_api_key,
+        ))
+    return tools

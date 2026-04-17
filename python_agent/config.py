@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     prune_context_threshold: float = 0.8
     log_dir: Path = Path(__file__).resolve().parent.parent / "logs"
 
+    # Confluence (optional — search tool only registers when all three are set)
+    confluence_url: str | None = None
+    confluence_email: str | None = None
+    confluence_api_key: str | None = None
+
     # AWS Bedrock settings (only used when provider=bedrock)
     aws_region: str | None = None
     aws_profile: str | None = None
