@@ -2,7 +2,9 @@
   <img src="thesaurus/assets/banner.png" alt="Thesaurus" width="720">
 </h1>
 
-A streaming, tool-calling AI agent built on the Anthropic Claude API. Learning lab for agentic AI patterns — minimal core, easy to extend, Textual-based TUI.
+<p align="center"><em>Thesaurus — your treasury of tools.</em></p>
+
+A streaming, tool-calling AI agent for the Anthropic Claude API. Hexagonal architecture — minimal core, clean Tool protocol, Textual-based TUI. Easy to extend, easy to port.
 
 ## Quick start
 
