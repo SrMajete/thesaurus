@@ -44,7 +44,7 @@ class WebSearchTool:
         },
         "required": ["query"],
     }
-    needs_permission = True
+    needs_permission = False
     is_parallelizable = True
     is_intercepted = False
 

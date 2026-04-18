@@ -1,4 +1,6 @@
-# Thesaurus
+<h1 align="center">
+  <img src="thesaurus/assets/banner.png" alt="Thesaurus" width="720">
+</h1>
 
 A streaming, tool-calling AI agent built on the Anthropic Claude API. Learning lab for agentic AI patterns — minimal core, easy to extend, Textual-based TUI.
 
@@ -48,6 +50,8 @@ thesaurus/
 │   ├── config.py          pydantic-settings loader
 │   ├── logging.py         logging setup
 │   └── tui.py             Textual full-screen TUI
+├── assets/                package data shipped with the wheel
+│   └── banner.png         startup banner (also used by this README)
 └── tools/                 one class per tool (Tool Protocol)
     └── summaries.py       per-tool display metadata
 ```

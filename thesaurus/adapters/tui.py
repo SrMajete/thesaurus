@@ -1,13 +1,16 @@
 """Textual-based CLI — the agent's only interface.
 
-Uses Textual for a true TUI experience:
+Screen layout (all Screen-level siblings):
 
-- fixed ``Input`` docked at the bottom (never scrolls away)
-- scrollable ``VerticalScroll`` message history above
-- mouse support, Ctrl+L clear, Ctrl+C/D quit
-- collapsible tool-call blocks with inline spinners and result rows
-- live-streaming markdown for thinking and assistant response
-- inline permission prompts (no modal interruption)
+- startup banner docked at the top — stays visible while scrolling
+- scrollable ``VerticalScroll`` message history in the middle
+- token counter stacked above the prompt
+- ``PromptArea`` docked at the bottom — never scrolls away
+
+Features: mouse support, Ctrl+L clear, Ctrl+C/D quit, collapsible
+tool-call blocks with inline spinners and result rows, live-streaming
+markdown for thinking and assistant response, inline permission
+prompts (no modal interruption).
 
 Implements the ``AgentCallbacks`` contract defined in ``core.agent``,
 so the core package and tools are unchanged. Callbacks fire on the
@@ -19,6 +22,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from enum import StrEnum
+from pathlib import Path
 from typing import Any
 
 from pyfiglet import Figlet
@@ -34,6 +39,10 @@ from textual.containers import VerticalScroll
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Static, TextArea
+from textual_image.renderable import Image as _AutoImageRenderable
+from textual_image.renderable.halfcell import Image as _HalfcellRenderable
+from textual_image.renderable.unicode import Image as _UnicodeRenderable
+from textual_image.widget import Image as ImageWidget
 
 from thesaurus.adapters import logging as logging_config
 from thesaurus.adapters.client_factory import fetch_max_context_tokens, make_llm_client
@@ -48,17 +57,49 @@ logger = logging.getLogger(__name__)
 
 
 # ───────────────────────────────────────────────────────────────────────────
+# Palette — single source of truth for every colour in the TUI
+# ───────────────────────────────────────────────────────────────────────────
+#
+# Fossil / dig-site theme, named after paleontology strata. Every
+# swatch is lifted ~+20 luminance for dark-terminal legibility.
+# Both the CSS below and the inline ``Text.append(style=…)`` calls in
+# ``_format_token_line`` / ``_tool_header_text`` / ``MarkdownStream``
+# read from this enum, so a re-theme is one edit in one place.
+#
+# ``StrEnum`` matches the ``ToolName`` convention in ``tools/base.py``:
+# members are string-native (usable directly in Rich ``style=``), typo
+# detection fires at attribute access, iteration order is stable.
+
+
+class Palette(StrEnum):
+    BONE           = "#E8E5DA"  # Bleached Skull   — token counter prefix / fallback neutral
+    LIMESTONE      = "#E5E2CF"  # Limestone Dust   — reserved neutral
+    AMBER          = "#EABC6C"  # Amber Resin      — agent body, focused prompt border, banner wordmark
+    AMBER_LIGHT    = "#F2CE88"  # (interpolated)   — agent label
+    WEATHERED      = "#CEC2A8"  # Weathered Bone   — thinking
+    RUST           = "#B0694A"  # Iron Oxide       — tool body, context 75%
+    RUST_LIGHT     = "#D47F5B"  # (interpolated)   — tool header prefix
+    SHALE          = "#A6A191"  # Shale Bed        — hint, turn-rule separator
+    FERN           = "#96A081"  # Fossilized Fern  — success (tool-ok), context 20%
+    VERDIGRIS      = "#5FA896"  # Copper Patina    — user body (cool, distinct from warm agent/thinking)
+    VERDIGRIS_LIGHT= "#82C7B5"  # (interpolated)   — user label
+    SLATE          = "#A8B4BA"  # Geologist Slate  — permission prompt (cool accent)
+    CANYON         = "#D09570"  # Canyon Matrix    — context 60% midtone
+    ALERT          = "#ff0000"  # universal red    — errors, spinner, context 90%
+
+
+# Emitted as Textual CSS variables at the top of ``_CSS`` so every
+# selector below references ``$amber`` / ``$limestone`` etc. instead of
+# hex literals. Textual's parser resolves these natively — no Python
+# string interpolation required.
+_PALETTE_VARS_CSS = "\n".join(f"${p.name.lower()}: {p.value};" for p in Palette)
+
+
+# ───────────────────────────────────────────────────────────────────────────
 # Theme — single Textual CSS string
 # ───────────────────────────────────────────────────────────────────────────
+_CSS = _PALETTE_VARS_CSS + """
 
-# Semantic class names bind to ANSI-256 shades. Hex values below are
-# the standard xterm 256-color mappings for ANSI color indices:
-#   ansi 111 = user.text (light blue)
-#   ansi 114 = agent.text (light green)
-#   ansi 141 = thinking (purple)
-#   ansi 208 = tool.name (orange)
-#   ansi 245 = hint / separator (gray)
-_CSS = """
 /* Transparent Screen + message pane so the terminal's native
    background shows through everywhere — otherwise Textual's themed
    ``$background`` paints a rectangle that doesn't quite match the
@@ -82,12 +123,12 @@ Screen {
 }
 
 /* Prompt border mirrors the user/agent text palette: unfocused ->
-   ``.user`` cyan (``#5fd7d7``) so the box reads as the user's
-   editable space; focused -> ``.agent`` pastel green (``#87d787``)
-   signalling "input is hot, ready to send to the agent". */
+   $verdigris (user body) so the box reads as the user's editable
+   space; focused -> $amber (agent body) signalling "input is hot,
+   ready to send to the agent". */
 #prompt {
     dock: bottom;
-    border: round #5fd7d7;
+    border: round $verdigris;
     height: auto;
     min-height: 3;
     max-height: 8;
@@ -113,58 +154,94 @@ Screen {
 }
 
 #prompt:focus {
-    border: round #87d787;
+    border: round $amber;
 }
 
-.banner {
-    color: #00aaaa;
-    text-style: bold;
+/* Startup banner. Graphics-capable terminals (Sixel/Kitty/iTerm2) show
+   the composite banner PNG; others fall back to the pyfiglet wordmark.
+   ``dock: top`` pins the banner above the scrollable message pane so
+   it stays visible as the conversation scrolls. Banner aspect ≈ 4.57
+   → width ≈ 9.14 × height in a 2:1 cell grid.
+   Note: ``width: 100`` is absolute cells and clips on terminals
+   narrower than 100 columns — textual-image has no responsive sizing. */
+.banner-image {
+    dock: top;
+    width: 100;
+    height: 11;
     padding: 1 0 0 1;
+}
+.banner-wordmark {
+    dock: top;
+    color: $amber;
+    text-style: bold;
+    width: auto;
+    height: auto;
+    padding: 1 0 0 1;
+}
+
+/* User message container. Top padding gives each turn its breathing
+   room above — single source of truth for "space between prior content
+   and the next user turn," whether the prior content is a startup
+   hint (first turn) or a turn-separator rule (subsequent turns). The
+   inner label + body widgets don't add their own vertical spacing. */
+UserMessage {
+    height: auto;
+    padding: 2 0 0 0;
+}
+.user-label {
+    color: $verdigris_light;
+    text-style: bold;
+}
+/* One row of top padding leaves a blank line between ``user →`` and
+   the body, mirroring the ``agent →`` / body spacing below. */
+.user {
+    color: $verdigris;
+    padding: 1 0 0 2;
     height: auto;
 }
 
-/* User message text — bright turquoise cyan. Brighter and cooler
-   than the banner's ``#00aaaa`` teal; visually pairs with the agent's
-   ``#87d787`` light green at a similar lightness level. Two rows of
-   top padding give each user message clear breathing room above —
-   single source of truth for "space between prior content and the
-   next user turn," whether that prior content is a startup hint
-   (first turn) or a turn-separator rule (subsequent turns). */
-.user {
-    color: #5fd7d7;
-    padding: 2 0 0 0;
+.hint {
+    color: $shale;
+    text-style: italic;
 }
 
-.hint {
-    color: #8a8a8a;
-    text-style: italic;
+/* Tagline — startup line introducing the app. Bold italic amber
+   (brighter than agent body) so it reads as the app's wordmark
+   subtitle, distinct from the dim-shale hints below. Zero horizontal
+   padding so it aligns with ``.hint`` (``#messages`` already supplies
+   the 1-cell left padding). */
+.tagline {
+    color: $amber_light;
+    text-style: bold italic;
+    padding: 1 0 1 0;
 }
 
 /* .tool-header has no rule: color + weight come from the inline
    ``Text`` returned by ``_tool_header_text``. See that function's
    docstring for the split. */
 
-/* tool-detail / tool-ok / tool-fail are mounted INSIDE ToolCall, so
-   their top padding provides the blank between header and child rows.
-   ToolCall itself is separated from its siblings via explicit spacer
-   widgets emitted by AgentApp._mount_blank.
-   No ``color`` here — ``_detail_renderable`` returns either a
-   ``Syntax`` renderable (with its own monokai palette) or a ``Text``
-   with inline ``style="#8a8a8a"``. Setting a CSS color would cascade
-   over the Syntax output and flatten the highlighting. */
+/* tool-detail / tool-ok / tool-fail live inside ToolCall, which has
+   its own ``padding-left: 2``; these add 2 more for col-4 total
+   (2-indent level). Top padding provides the blank between header and
+   child rows; ToolCall is separated from siblings via explicit spacer
+   widgets emitted by AgentApp._mount_blank. No ``color`` on
+   ``.tool-detail`` — ``_detail_renderable`` returns either a
+   ``Syntax`` renderable (monokai palette, must survive) or a ``Text``
+   with its own inline style. A CSS colour here would cascade over the
+   Syntax output and flatten the highlighting. */
 .tool-detail {
     padding: 1 0 0 2;
     background: black 0%;
 }
 
 .tool-ok {
-    color: green;
+    color: $fern;
     text-style: bold;
     padding: 1 0 0 2;
 }
 
 .tool-fail {
-    color: #ff0000;
+    color: $alert;
     text-style: bold;
     padding: 1 0 0 2;
 }
@@ -175,31 +252,36 @@ Screen {
 
 /* Nested one level further right than tool headers so the stream
    reads as content belonging to the enclosing ``make_plan`` block.
-   Dim italic purple so thinking recedes visually — it's the agent's
+   Dim italic amber so thinking recedes visually — it's the agent's
    scratchpad, not the deliverable. Paired with ``dim`` in the
    Markdown ``_BASE_STYLE`` below. */
 .thinking {
-    color: #af87ff;
+    color: $weathered;
     text-style: italic;
     padding: 0 0 0 4;
     height: auto;
 }
 
+/* Brighter interpolation of Amber Resin so the agent label stays in
+   its own hue family (gold) and doesn't read like the user label
+   (cream). */
 .agent-label {
-    color: #00ff5f;
+    color: $amber_light;
     text-style: bold;
     height: 1;
 }
 
 /* Agent-response stream. Widget ``classes=kind`` where kind is
-   ``"agent"`` — selector must match that exact name. */
+   ``"agent"`` — selector must match that exact name. Body indented
+   2 cells beneath the ``agent →`` label (same col as ``tool →``). */
 .agent {
-    color: #87d787;
+    color: $amber;
     height: auto;
+    padding: 0 0 0 2;
 }
 
 Spinner {
-    color: #ff0000;
+    color: $alert;
     padding: 0 0 0 2;
     height: 1;
     margin-top: 1;
@@ -208,30 +290,31 @@ Spinner {
 /* Inline 'Allow execution? [Y/n]' prompt mounted below a pending
    ToolCall when the agent requests a permission-gated tool. Padding
    matches ``.tool-detail`` so it reads as a child row of the tool
-   block above. The blue accent is distinct from tool headers (yellow)
-   and results (green/red) so the user recognises the row as an
-   interactive prompt at a glance. */
+   block above. Dusty blue is the one cool accent in an otherwise
+   warm palette — distinct and unmistakably an interactive prompt. */
 .permission-prompt {
-    color: #87afff;
+    color: $slate;
     padding: 1 0 0 4;
 }
 """
 
 
-# ASCII-art banner rendered once at startup. ``ansi_shadow`` is pyfiglet's
-# chunky 3D-shadow font — best "techy terminal tool" readability at our
-# scale. Swap the constant here to try another font (e.g. ``slant``,
-# ``big``, ``standard``); list available ones with ``pyfiglet -l``.
+# Pyfiglet fallback banner — shown when the terminal has no graphics
+# protocol support (see ``_graphics_supported``). ``ansi_shadow`` is
+# pyfiglet's chunky 3D-shadow font, best "techy terminal tool"
+# readability at our scale. Swap for another (e.g. ``slant``, ``big``,
+# ``standard``); list available ones with ``pyfiglet -l``.
 _BANNER_TEXT = "THESAURUS"
 _BANNER_FONT = "ansi_shadow"
 
 
 def _render_banner() -> str:
-    """Render the startup banner as pre-formatted ASCII art.
+    """Render the pyfiglet fallback banner as pre-formatted ASCII art.
 
-    Rendered eagerly once so app startup doesn't pay the figlet cost
-    each time the app launches — pyfiglet's font loader parses the
-    font file on first call and caches per-process.
+    Called once at module import and cached in ``_BANNER``. Pyfiglet's
+    font loader parses the ``.flf`` file on first call and caches
+    per-process, so repeat calls would be cheap anyway — the
+    module-level cache just hides the cost entirely.
     """
     return Figlet(font=_BANNER_FONT).renderText(_BANNER_TEXT).rstrip()
 
@@ -239,22 +322,55 @@ def _render_banner() -> str:
 _BANNER = _render_banner()
 
 
-_CONTEXT_PCT_COLORS: list[tuple[int, str]] = [
-    (90, "red"),
-    (75, "#ff8700"),
-    (60, "yellow"),
-    (40, "#5fd7d7"),
-    (20, "green"),
-    (0, "white"),
+# Graphics-path banner — composite PNG (wordmark + skull) shown on
+# terminals that speak Sixel / Kitty graphics protocol / iTerm2 inline
+# images. Ships with the package at ``thesaurus/assets/banner.png`` so
+# pip-installed users get the asset without needing the repo.
+_BANNER_IMAGE_PATH = Path(__file__).resolve().parent.parent / "assets" / "banner.png"
+
+
+def _graphics_supported() -> bool:
+    """True when the terminal speaks Sixel or the Kitty graphics protocol.
+
+    ``textual_image`` auto-detects protocol support at import time and
+    swaps its ``Image`` renderable accordingly. Half-cell/Unicode are
+    the fallbacks — rasterized text at small sizes is illegible under
+    them, so we fall back to pyfiglet in that case.
+    """
+    return _AutoImageRenderable not in (_HalfcellRenderable, _UnicodeRenderable)
+
+
+def _build_banner(with_image: bool) -> Widget:
+    """Return the startup banner widget.
+
+    Factored out of the call-site so tests can exercise both code paths
+    without patching module-level protocol detection.
+    """
+    if with_image:
+        return ImageWidget(_BANNER_IMAGE_PATH, classes="banner-image")
+    return Static(_BANNER, classes="banner-wordmark")
+
+
+_CONTEXT_PCT_COLORS: list[tuple[int, Palette]] = [
+    (90, Palette.ALERT),
+    (75, Palette.RUST),
+    (60, Palette.CANYON),
+    (40, Palette.AMBER),
+    (20, Palette.FERN),
+    (0,  Palette.BONE),
 ]
 
 
 def _context_pct_color(pct: int) -> str:
-    """Return the color for a context usage percentage."""
+    """Return the colour hex for a context usage percentage.
+
+    The ``(0, …)`` entry is a total floor; any non-negative ``pct``
+    matches at least that row, so no end-of-loop fallback is needed.
+    """
     for threshold, color in _CONTEXT_PCT_COLORS:
         if pct >= threshold:
             return color
-    return "white"
+    raise AssertionError(f"unreachable: pct={pct} fell through palette gradient")
 
 
 def _scale(peak: int) -> tuple[str, int, int]:
@@ -291,14 +407,14 @@ def _format_token_line(
     prefix = f"{raw_label:<{_LABEL_WIDTH}} → " if raw_label else ""
 
     t = Text()
-    t.append(prefix, style="bright_white")
-    t.append("input=", style="#5fd7d7")
-    t.append(fmt(in_tokens), style="#5fffff")
+    t.append(prefix, style=Palette.BONE)
+    t.append("input=", style=Palette.VERDIGRIS)
+    t.append(fmt(in_tokens), style=Palette.VERDIGRIS_LIGHT)
     t.append(" (", style="white")
     t.append(fmt(cached_tokens), style="white")
     t.append(" cached), ", style="white")
-    t.append("output=", style="#87d787")
-    t.append(fmt(out_tokens), style="#00ff5f")
+    t.append("output=", style=Palette.AMBER)
+    t.append(fmt(out_tokens), style=Palette.AMBER_LIGHT)
     return t
 
 
@@ -399,25 +515,20 @@ def _tool_header_text(name: str, params: dict[str, Any]) -> Text:
     no label is available (no reason, no summary) the trailing colon
     is omitted so the header reads as just ``tool → {name}``.
 
-    Mirrors the ``user →`` / ``agent →`` body-to-label luminance
-    relationship while keeping the orange hue unmistakably orange:
+    Mirrors the ``user →`` / ``agent →`` body-to-label relationship:
+    the prefix is a brighter tone of the same hue as the body so the
+    header reads as "label + payload, same colour family."
 
-    - Tool body in ``#ffaf5f`` — vivid light orange (ANSI 215),
-      saturation 100%, lightness ~69%, relative luminance ~186.
-      Matches ``.user`` (Y~190) and ``.agent`` (Y~192) body brightness.
-      Desaturated tans (``#d7af87``) at matching luminance read as
-      beige rather than orange — full saturation here keeps the hue
-      recognisable.
-    - Tool prefix bold ``#ffaf00`` — yellow-leaning orange, full
-      saturation, relative luminance ~179. Near-parity with the body
-      (Δ ≈ −7), same body-to-label relationship as ``agent-label``
-      (Δ ≈ −3) and a bright perceived weight.
+    - Tool body in ``Palette.RUST`` (Iron Oxide) — baked earth hue,
+      distinct from cream (user) and amber (agent).
+    - Tool prefix bold ``Palette.RUST_LIGHT`` — brighter, warmer
+      terracotta. Same hue family, lifted luminance.
     """
     t = Text()
-    t.append("tool → ", style="bold #ffaf00")
+    t.append("tool → ", style=f"bold {Palette.RUST_LIGHT}")
     label = tool_header_label(name, params)
     body = f"{name}: {label}" if label else name
-    t.append(body, style="#ffaf5f")
+    t.append(body, style=Palette.RUST)
     return t
 
 
@@ -437,22 +548,25 @@ Keys:
 # ───────────────────────────────────────────────────────────────────────────
 
 
-class UserMessage(Static):
-    """One-line ``user → {text}`` display.
+class UserMessage(Widget):
+    """User turn display: ``user →`` label with the text on an indented
+    line beneath, mirroring the agent's ``agent → / body`` structure.
 
-    Mirrors the agent's label/text color pairing at matching brightness:
-    the ``user →`` label is electric cyan (``#5fffff`` = color 87) just
-    as ``agent-label`` is electric green (``#00ff5f`` = color 46), and
-    the typed text is pastel cyan (``#5fd7d7``) paralleling ``.agent``'s
-    pastel green (``#87d787``). Same "bright label over pastel body"
-    relationship on both sides.
+    Colour pairing distinguishes hue families: the user label is
+    ``Palette.VERDIGRIS_LIGHT`` over ``Palette.VERDIGRIS`` body —
+    cool teal (copper-patina) family. The agent label is
+    ``Palette.AMBER_LIGHT`` over ``Palette.AMBER`` body — warm gold
+    (fossilised) family. Indentation lives in CSS (``.user-label`` /
+    ``.user``) so wrapped long inputs stay aligned.
     """
 
     def __init__(self, text: str) -> None:
-        content = Text()
-        content.append("user → ", style="bold #5fffff")
-        content.append(text, style="#5fd7d7")
-        super().__init__(content, classes="user")
+        super().__init__()
+        self._text = text
+
+    def compose(self) -> ComposeResult:
+        yield Static("user →", classes="user-label")
+        yield Static(self._text, classes="user")
 
 
 class ToolCall(Widget):
@@ -529,8 +643,8 @@ class MarkdownStream(Static):
     """
 
     _BASE_STYLE: dict[str, str] = {
-        "thinking": "dim italic #af87ff",
-        "agent": "#87d787",
+        "thinking": f"dim italic {Palette.WEATHERED}",
+        "agent": Palette.AMBER,
     }
 
     def __init__(self, kind: str) -> None:
@@ -795,15 +909,21 @@ class AgentApp(App[None]):
         self._turn_count: int = 0
 
     def compose(self) -> ComposeResult:
-        """Build the static layout: scrollable message pane + token counter + input box."""
+        """Build the static layout: docked banner + scrollable message pane +
+        token counter + input box. The banner sits outside ``#messages`` so
+        it stays pinned at the top of the screen as the conversation scrolls.
+        """
+        yield _build_banner(with_image=_graphics_supported())
         yield VerticalScroll(id="messages")
         yield TokenCounter(id="token-counter")
         yield PromptArea(id="prompt")
 
     def on_mount(self) -> None:
-        """Render the startup banner + hints and focus the prompt."""
-        self._mount_to_messages(Static(_BANNER, classes="banner"))
-        self._mount_blank()
+        """Render the startup tagline, environment hints, and focus the prompt."""
+        self._mount_to_messages(Static(
+            "Thesaurus — your treasury of tools",
+            classes="tagline",
+        ))
         self._mount_hint(f"model:     {self.settings.model}")
         self._mount_hint(f"provider:  {self.settings.api_provider}")
         self._mount_hint("help:      /help for commands · Enter send · Shift+Enter newline · Ctrl+C quit")
@@ -1063,7 +1183,7 @@ class AgentApp(App[None]):
                 Rule(
                     title=f"interaction {self._turn_count}",
                     align="left",
-                    style="color(245)",
+                    style=Palette.SHALE,
                     characters="-",
                 ),
                 classes="turn-separator",

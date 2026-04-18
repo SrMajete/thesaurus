@@ -207,7 +207,7 @@ class TestToolProtocol:
     def test_has_required_attributes(self) -> None:
         t = WebSearchTool()
         assert t.name == "web_search"
-        assert t.needs_permission is True
+        assert t.needs_permission is False
         assert t.is_parallelizable is True
         assert t.is_intercepted is False
         assert "query" in t.input_schema["properties"]
